@@ -1,0 +1,17 @@
+# LearningAgent Project
+
+The LearningAgent is a RAG (Retrieval-Augmented Generation) system that uses:
+
+- Qwen-3 4B via Ollama (32k context window)
+- FastEmbed + FlagEmbedding for embeddings (BAAI/bge-small-en)
+- Qdrant for vector storage (both embedded and Docker modes)
+- Exa Search for web fallback
+
+The agent provides:
+- Document ingestion for PDFs, markdown, and text files
+- Vector search for relevant context
+- Long-term memory of conversations
+- Hybrid search (semantic + keyword)
+- Web search fallback when local knowledge is insufficient
+
+All data is stored locally in Qdrant, enhancing privacy while maintaining good performance. 
