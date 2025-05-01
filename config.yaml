@@ -1,0 +1,27 @@
+# LearningAgent Configuration
+# Edit this file to adjust behavior without changing code
+
+# Model settings
+model: qwen3:4b
+temperature: 0.3
+
+# Memory
+use_memory: false
+
+# Embedding
+embedding_model: BAAI/bge-small-en-v1.5
+
+# Retrieval settings
+top_k: 5
+similarity_threshold: 0.5
+
+# Chunking settings
+chunk_size: 2000
+chunk_overlap: 200
+
+# Web search fallback
+use_web_fallback: true
+web_results: 3
+
+# Collection name
+collection: kb
