@@ -154,7 +154,7 @@ if not EXA_KEY and CONFIG.get("use_web_fallback", True):
 # --------------------------------------------------------------------------- #
 def get_llm(model=None, temperature=None):
     """Create an LLM instance."""
-    model = model or CONFIG.get("model", "qwen3:1.7b")
+    model = model or CONFIG.get("model", "qwen3:4b")
     temperature = temperature or CONFIG.get("temperature", 0.3)
     
     # Try to use OllamaLLM (the new recommended class)
@@ -254,9 +254,25 @@ def init_vector_store(embedder: Embedder):
 
 
 def build_retriever(vector_store, llm, top_k: int):
-    """Hybrid + MultiQuery expansion."""
-    base = vector_store.as_retriever(search_kwargs={"k": top_k})
-    return MultiQueryRetriever.from_llm(retriever=base, llm=llm)
+    """Hybrid + MultiQuery expansion with similarity threshold."""
+    similarity_threshold = CONFIG.get("similarity_threshold", 0.5)
+    # Base retriever with similarity threshold filter
+    if hasattr(vector_store, "as_retriever") and hasattr(vector_store.as_retriever, "__call__"):
+        base = vector_store.as_retriever(
+            search_kwargs={
+                "k": top_k,
+                "score_threshold": similarity_threshold
+            }
+        )
+        # Use MultiQueryRetriever for better recall
+        return MultiQueryRetriever.from_llm(
+            retriever=base, 
+            llm=llm
+        )
+    else:
+        # Fallback for older versions
+        rprint("[yellow]⚠️ Using basic retriever (similarity threshold not supported)[/yellow]")
+        return vector_store.as_retriever(search_kwargs={"k": top_k})
 
 
 def embed_with_fallback(embedder, text):
@@ -324,7 +340,7 @@ def web_fallback(query: str, n_results: int = 3) -> str:
                 splitter = TokenTextSplitter(
                     chunk_size=CHUNK_SIZE,
                     chunk_overlap=CHUNK_OVERLAP,
-                    model_name="gpt-3.5-turbo",
+                    model_name="gpt-3.5-turbo", #This is correct! Do not change it. 
                 )
                 # Process web results like other documents
                 docs = [
@@ -337,7 +353,7 @@ def web_fallback(query: str, n_results: int = 3) -> str:
 
                 # Get embedder and client
                 embedder = Embedder(EMBED_MODEL_NAME)
-                client = QdrantClient(path="./qdrant_data")
+                client = connect_to_qdrant()
 
                 # Create batch of embeddings and payloads
                 batch_vectors = []
@@ -404,8 +420,9 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
                 batch_vectors.append(embed_with_fallback(embedder, doc.page_content))
                 payloads.append({"source": doc.metadata.get("source", "local")})
 
-            # Upsert to Qdrant
-            client = QdrantClient(path="./qdrant_data")
+            # Use the same client that's already connected in the main application
+            # instead of creating a new one
+            client = connect_to_qdrant()
             from qdrant_client import models as qmodels
 
             client.upsert(
@@ -418,6 +435,122 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             rprint(f"[green]✅ Added {len(batch_vectors)} chunks from {path}[/green]")
         except Exception as e:
             rprint(f"[red]❌ Error ingesting documents: {e}[/red]")
+            # Provide a hint about Docker if embedded Qdrant fails
+            if "already accessed by another instance" in str(e):
+                rprint("[yellow]💡 Try using Docker-based Qdrant instead:[/yellow]")
+                rprint("[yellow]   1. Stop this chat (Ctrl+C)[/yellow]")
+                rprint("[yellow]   2. Run 'make start_qdrant' if not already running[/yellow]")
+                rprint("[yellow]   3. Use 'python ingest.py --path {path}' directly[/yellow]")
+        return True
+
+    if cmd == ":search_kb":
+        if not args:
+            rprint("[red]⚠️ Search term required: :search_kb TERM[/red]")
+            return True
+            
+        search_term = args.strip()
+        rprint(f"[cyan]🔍 Direct knowledge base search for: {search_term}[/cyan]")
+        
+        try:
+            # Get components from state
+            embedder = state.get("embedder")
+            if not embedder:
+                embedder = Embedder(EMBED_MODEL_NAME)
+                
+            # Connect to Qdrant
+            client = connect_to_qdrant()
+            
+            # Create embedding for search term
+            query_vector = embed_with_fallback(embedder, search_term)
+            
+            # Perform raw search with high limit and no threshold
+            from qdrant_client.models import Filter
+            
+            search_results = client.search(
+                collection_name=COLLECTION,
+                query_vector=query_vector,
+                limit=20,  # Higher limit for debug search
+                with_payload=True,
+            )
+            
+            if not search_results:
+                rprint("[yellow]⚠️ No results found in knowledge base[/yellow]")
+                return True
+                
+            # Display results in a table
+            from rich.table import Table
+            
+            table = Table(title=f"Search Results for '{search_term}'")
+            table.add_column("Score", style="cyan", justify="right")
+            table.add_column("Source", style="green")
+            table.add_column("Content Preview", style="yellow")
+            
+            for i, result in enumerate(search_results, 1):
+                score = result.score
+                source = result.payload.get("source", "unknown")
+                
+                # Get content preview by searching in vectors
+                point = client.retrieve(
+                    collection_name=COLLECTION,
+                    ids=[result.id],
+                    with_vectors=False,
+                    with_payload=True,
+                )
+                
+                content = "Content not available"
+                if point and point[0].payload:
+                    # Try different ways to get content
+                    if "page_content" in point[0].payload:
+                        content = point[0].payload["page_content"]
+                    elif "text" in point[0].payload:
+                        content = point[0].payload["text"]
+                    else:
+                        # For direct search results, try to get content from a separate lookup
+                        try:
+                            from langchain_community.vectorstores import QdrantVectorStore
+                            raw_results = QdrantVectorStore(
+                                client=client,
+                                collection_name=COLLECTION,
+                                embedding=EmbeddingWrapper(embedder),
+                            ).similarity_search_with_score(search_term, k=1, filter=Filter(must=[{"has_id": [result.id]}]))
+                            if raw_results:
+                                content = raw_results[0][0].page_content
+                        except:
+                            content = "Content preview not available"
+                
+                # Truncate long content
+                if len(content) > 100:
+                    content = content[:97] + "..."
+                
+                table.add_row(
+                    f"{score:.4f}",
+                    source,
+                    content
+                )
+                
+                # For the top 3 most similar documents, show more details
+                if i <= 3:
+                    rprint(f"[bold]Document {i} (Score: {score:.4f})[/bold]")
+                    rprint(f"Source: {source}")
+                    if len(content) > 100:
+                        rprint(f"Preview: {content[:100]}...")
+                    else:
+                        rprint(f"Content: {content}")
+                    rprint("")
+            
+            rprint(table)
+            
+            # Show collection stats
+            collection_info = client.get_collection(COLLECTION)
+            vector_count = collection_info.points_count
+            rprint(f"[dim]Knowledge base contains {vector_count} total vectors[/dim]")
+            
+        except Exception as e:
+            import traceback
+            rprint(f"[red]❌ Error searching knowledge base: {e}[/red]")
+            if state.get("debug"):
+                rprint(traceback.format_exc())
+            
         return True
 
     if cmd == ":search":
@@ -532,7 +665,7 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             splitter = TokenTextSplitter(
                 chunk_size=CHUNK_SIZE,
                 chunk_overlap=CHUNK_OVERLAP,
-                model_name="gpt-3.5-turbo",
+                model_name=EMBED_MODEL_NAME,
             )
             chunks = splitter.split_documents(docs)
             
@@ -629,6 +762,9 @@ def main():
     parser.add_argument(
         "--top-k", type=int, default=DEFAULT_TOP_K, help="Top-k retrieval"
     )
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug mode with detailed output"
+    )
     args = parser.parse_args()
 
     rprint(
@@ -637,6 +773,7 @@ def main():
             "📚 [bold]Commands:[/bold]\n"
             "  - Type your questions to chat with the agent\n"
             "  - [yellow]:search[/yellow] [italic]<topic>[/italic] → run web search on a topic\n"
+            "  - [yellow]:search_kb[/yellow] [italic]<term>[/italic] → direct search in knowledge base\n"
             "  - [yellow]:ingest[/yellow] [italic]<path>[/italic] → add documents to knowledge base\n"
             "  - [yellow]:memory[/yellow] [italic]on/off[/italic] → toggle conversation memory\n"
             "  - [yellow]:config[/yellow] → show current settings\n"
@@ -652,10 +789,11 @@ def main():
     vector_store = init_vector_store(embedder)
     retriever = build_retriever(vector_store, llm, args.top_k)
 
-    # Simple QA prompt
+    # Enhanced QA prompt that asks to cite sources
     qa_prompt = PromptTemplate.from_template(
         "You are a helpful assistant. Use the following context to answer the question.\n"
-        "If you don't know, say so.\n\n"
+        "If the context doesn't contain relevant information, say so.\n"
+        "If you use information from the context, cite the source when possible.\n\n"
         "Context:\n{context}\n\n"
         "{history}\n\n"
         "Question: {question}\nAnswer:"
@@ -671,6 +809,7 @@ def main():
         "top_k": args.top_k,
         "embedder": embedder,
         "llm": llm,
+        "debug": args.debug,
     }
 
     # Setup memory if enabled
@@ -698,18 +837,56 @@ def main():
             continue
 
         # ===== Retrieval phase =====
+        rprint("[cyan]🔍 Searching knowledge base...[/cyan]")
         docs = retriever.invoke(user_input)
+        
+        # Debug: show document sources and scores if available
         if isinstance(docs, list):
-            context_texts = [d.page_content for d in docs]
+            context_texts = []
+            sources = []
+            
+            # Create formatted context with source info
+            for i, doc in enumerate(docs):
+                content = doc.page_content
+                metadata = doc.metadata
+                source = metadata.get("source", "unknown")
+                page = metadata.get("page", "")
+                score = metadata.get("score", None)
+                
+                # Format source info
+                source_info = f"[Source: {source}"
+                if page:
+                    source_info += f", page {page}"
+                if score is not None:
+                    source_info += f", relevance: {score:.2f}"
+                source_info += "]"
+                
+                context_texts.append(f"{content}\n\n{source_info}")
+                sources.append(source)
+                
+                # Debug logging
+                if state.get("debug"):
+                    rprint(f"[dim]Document {i+1}:[/dim]")
+                    rprint(f"[dim]  Source: {source} {page if page else ''}[/dim]")
+                    if score is not None:
+                        rprint(f"[dim]  Score: {score:.2f}[/dim]")
+                    rprint(f"[dim]  Length: {len(content)} chars[/dim]")
+            
+            # Display retrieval info
+            rprint(f"[green]✅ Found {len(docs)} relevant documents[/green]")
+            if len(set(sources)) > 1:
+                rprint(f"[green]  Sources: {', '.join(set(sources))[:80]}{'...' if len(', '.join(set(sources))) > 80 else ''}[/green]")
         else:
             context_texts = []
+            rprint("[yellow]⚠️ No relevant documents found[/yellow]")
 
+        # Web fallback if no results
         if not context_texts and state["web_fallback"]:
-            rprint(
-                "[yellow]🔍 No local results – falling back to web search...[/yellow]"
-            )
+            rprint("[yellow]🔍 No local results – falling back to web search...[/yellow]")
             web_ctx = web_fallback(user_input, n_results=CONFIG.get("web_results", 3))
-            context_texts = [web_ctx] if web_ctx else []
+            if web_ctx:
+                context_texts = [f"{web_ctx}\n\n[Source: web search results]"]
+                rprint("[green]✅ Retrieved information from the web[/green]")
 
         if not context_texts:
             rprint(
@@ -727,6 +904,9 @@ def main():
                 history = "Previous conversation:\n" + memory_buffer
 
         # ===== LLM phase =====
+        if state.get("debug"):
+            rprint("[cyan]⚙️ Generating answer...[/cyan]")
+            
         answer = qa_chain.invoke({"context": context, "question": user_input, "history": history})
         
         # Clean up the answer to remove <think> sections and any other assistant markup

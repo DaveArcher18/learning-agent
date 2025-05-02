@@ -50,12 +50,9 @@ except ImportError:
 
 # Text splitter import
 try:
-    from langchain_text_splitters import TokenTextSplitter
+    from langchain_text_splitters.text_splitter import TokenTextSplitter
 except ImportError:
-    try:
-        from langchain_community.text_splitters import TokenTextSplitter
-    except ImportError:
-        from langchain.text_splitter import TokenTextSplitter
+    from langchain.text_splitter import TokenTextSplitter
 
 from rich import print as rprint
 
@@ -161,7 +158,7 @@ def split_documents(docs: List[Document]) -> List[Document]:
     splitter = TokenTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        model_name="gpt-3.5-turbo",  # Use a well-known model as tokenizer
+        model_name="gpt-3.5-turbo", #This is correct! Do not change it.
     )
     return splitter.split_documents(docs)
 
