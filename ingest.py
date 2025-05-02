@@ -183,27 +183,28 @@ def ensure_collection(client: QdrantClient, size: int, rebuild: bool = False) ->
 
 
 def connect_to_qdrant():
-    """Try to connect to Qdrant, first embedded then Docker."""
-    # Try embedded Qdrant first
+    """Connect to Qdrant, prioritizing Docker over embedded."""
+    # Try Docker connection first (preferred for reliability)
     try:
-        client = QdrantClient(path="./qdrant_data")
+        client = QdrantClient(host="localhost", port=6333)
         # Quick test to make sure it works
         client.get_collections()
-        rprint("[green]✅ Connected to embedded Qdrant[/green]")
+        rprint("[green]✅ Connected to Docker Qdrant[/green]")
         return client
-    except Exception as e:
-        rprint(f"[yellow]⚠️ Could not connect to embedded Qdrant: {e}[/yellow]")
-        rprint("[cyan]🔄 Trying Docker Qdrant connection...[/cyan]")
+    except Exception as docker_e:
+        rprint(f"[yellow]⚠️ Could not connect to Docker Qdrant: {docker_e}[/yellow]")
+        rprint("[yellow]💡 Try running 'make start_qdrant' to start Qdrant Docker[/yellow]")
         
-        # Try Docker connection
+        # Try embedded Qdrant as fallback
         try:
-            client = QdrantClient(host="localhost", port=6333)
-            # Simple health check
+            rprint("[cyan]🔄 Trying embedded Qdrant as fallback...[/cyan]")
+            client = QdrantClient(path="./qdrant_data")
+            # Quick test to make sure it works
             client.get_collections()
-            rprint("[green]✅ Connected to Docker Qdrant[/green]")
+            rprint("[green]✅ Connected to embedded Qdrant[/green]")
             return client
-        except Exception as docker_e:
-            rprint(f"[red]❌ Failed to connect to Docker Qdrant: {docker_e}[/red]")
+        except Exception as e:
+            rprint(f"[red]❌ Failed to connect to embedded Qdrant: {e}[/red]")
             rprint("[yellow]💡 Tips:[/yellow]")
             rprint("[yellow]  - Run 'make start_qdrant' to start Qdrant Docker[/yellow]")
             rprint("[yellow]  - Or make sure ./qdrant_data directory exists and is writable[/yellow]")
@@ -306,7 +307,17 @@ def main() -> None:
             vector = embedder.embed(doc.page_content)
             
         batch_vectors.append(vector)
-        payloads.append({"source": doc.metadata.get("source", "local")})
+        # Store both metadata and content in the payload
+        payload = {
+            "source": doc.metadata.get("source", "local"),
+            "page_content": doc.page_content
+        }
+        # Add any additional metadata fields
+        for key, value in doc.metadata.items():
+            if key != "source":
+                payload[key] = value
+                
+        payloads.append(payload)
 
     client.upsert(
         collection_name=COLLECTION,

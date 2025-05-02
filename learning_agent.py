@@ -173,34 +173,31 @@ def get_llm(model=None, temperature=None):
 
 
 def connect_to_qdrant():
-    """Try to connect to Qdrant, first embedded then Docker."""
-    # Try embedded Qdrant first
+    """Connect to Qdrant, prioritizing Docker over embedded."""
+    # Try Docker connection first (preferred for reliability)
     try:
-        client = QdrantClient(path="./qdrant_data")
+        client = QdrantClient(host="localhost", port=6333)
         # Quick test to make sure it works
         client.get_collections()
-        rprint("[green]✅ Connected to embedded Qdrant[/green]")
+        rprint("[green]✅ Connected to Docker Qdrant[/green]")
         return client
-    except Exception as e:
-        rprint(f"[yellow]⚠️ Could not connect to embedded Qdrant: {e}[/yellow]")
-        rprint("[cyan]🔄 Trying Docker Qdrant connection...[/cyan]")
-
-        # Try Docker connection
+    except Exception as docker_e:
+        rprint(f"[yellow]⚠️ Could not connect to Docker Qdrant: {docker_e}[/yellow]")
+        rprint("[yellow]💡 Try running 'make start_qdrant' to start Qdrant in Docker[/yellow]")
+        
+        # Try embedded Qdrant as fallback
         try:
-            client = QdrantClient(host="localhost", port=6333)
-            # Simple health check
+            rprint("[cyan]🔄 Trying embedded Qdrant as fallback...[/cyan]")
+            client = QdrantClient(path="./qdrant_data")
+            # Quick test to make sure it works
             client.get_collections()
-            rprint("[green]✅ Connected to Docker Qdrant[/green]")
+            rprint("[green]✅ Connected to embedded Qdrant[/green]")
             return client
-        except Exception as docker_e:
-            rprint(f"[red]❌ Failed to connect to Docker Qdrant: {docker_e}[/red]")
+        except Exception as e:
+            rprint(f"[red]❌ Failed to connect to embedded Qdrant: {e}[/red]")
             rprint("[yellow]💡 Tips:[/yellow]")
-            rprint(
-                "[yellow]  - Run 'make start_qdrant' to start Qdrant Docker[/yellow]"
-            )
-            rprint(
-                "[yellow]  - Or make sure ./qdrant_data directory exists and is writable[/yellow]"
-            )
+            rprint("[yellow]  - Run 'make start_qdrant' to start Qdrant Docker[/yellow]")
+            rprint("[yellow]  - Or make sure ./qdrant_data directory exists and is writable[/yellow]")
             raise RuntimeError("Could not connect to any Qdrant instance")
 
 
@@ -264,11 +261,47 @@ def build_retriever(vector_store, llm, top_k: int):
                 "score_threshold": similarity_threshold
             }
         )
+        
+        # Add debug wrapper to the base retriever if needed
+        class DebugRetriever:
+            """Wrapper to debug retriever calls"""
+            def __init__(self, retriever):
+                self.retriever = retriever
+                
+            def invoke(self, query):
+                rprint(f"[cyan]🔍 Base retriever search: {query}[/cyan]")
+                docs = self.retriever.invoke(query)
+                rprint(f"[cyan]📝 Retrieved {len(docs)} documents[/cyan]")
+                return docs
+        
         # Use MultiQueryRetriever for better recall
-        return MultiQueryRetriever.from_llm(
-            retriever=base, 
-            llm=llm
-        )
+        try:
+            # Create the multi-query retriever with callbacks for debugging
+            from langchain.callbacks.manager import CallbackManager
+            from langchain.callbacks import StdOutCallbackHandler
+            
+            # Only use verbose callbacks in debug mode
+            if CONFIG.get("debug", False):
+                callbacks = [StdOutCallbackHandler()]
+                cb_manager = CallbackManager(callbacks)
+                retriever = MultiQueryRetriever.from_llm(
+                    retriever=base,
+                    llm=llm,
+                    callbacks=cb_manager
+                )
+                rprint("[green]✅ Using MultiQueryRetriever with debug output[/green]")
+            else:
+                retriever = MultiQueryRetriever.from_llm(
+                    retriever=base, 
+                    llm=llm
+                )
+                rprint("[green]✅ Using MultiQueryRetriever[/green]")
+            
+            return retriever
+            
+        except Exception as e:
+            rprint(f"[yellow]⚠️ MultiQueryRetriever error: {e}. Falling back to base retriever.[/yellow]")
+            return base
     else:
         # Fallback for older versions
         rprint("[yellow]⚠️ Using basic retriever (similarity threshold not supported)[/yellow]")
@@ -451,100 +484,41 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
         search_term = args.strip()
         rprint(f"[cyan]🔍 Direct knowledge base search for: {search_term}[/cyan]")
         
+        # Debug output
+        if state.get("debug"):
+            rprint("[cyan]⚙️ Debug mode enabled for KB search[/cyan]")
+            
         try:
-            # Get components from state
+            # Use direct embedding for search
             embedder = state.get("embedder")
-            if not embedder:
-                embedder = Embedder(EMBED_MODEL_NAME)
-                
-            # Connect to Qdrant
+            query_vec = embed_with_fallback(embedder, search_term)
             client = connect_to_qdrant()
             
-            # Create embedding for search term
-            query_vector = embed_with_fallback(embedder, search_term)
-            
-            # Perform raw search with high limit and no threshold
-            from qdrant_client.models import Filter
-            
-            search_results = client.search(
+            limit = CONFIG.get("top_k", 5)
+            results = client.search(
                 collection_name=COLLECTION,
-                query_vector=query_vector,
-                limit=20,  # Higher limit for debug search
+                query_vector=query_vec,
+                limit=limit,
                 with_payload=True,
             )
             
-            if not search_results:
-                rprint("[yellow]⚠️ No results found in knowledge base[/yellow]")
+            if not results:
+                rprint("[yellow]⚠️ No results found[/yellow]")
                 return True
                 
-            # Display results in a table
-            from rich.table import Table
-            
-            table = Table(title=f"Search Results for '{search_term}'")
-            table.add_column("Score", style="cyan", justify="right")
-            table.add_column("Source", style="green")
-            table.add_column("Content Preview", style="yellow")
-            
-            for i, result in enumerate(search_results, 1):
-                score = result.score
-                source = result.payload.get("source", "unknown")
+            for i, res in enumerate(results):
+                score = res.score
+                source = res.payload.get("source", "unknown")
                 
-                # Get content preview by searching in vectors
-                point = client.retrieve(
-                    collection_name=COLLECTION,
-                    ids=[result.id],
-                    with_vectors=False,
-                    with_payload=True,
-                )
-                
-                content = "Content not available"
-                if point and point[0].payload:
-                    # Try different ways to get content
-                    if "page_content" in point[0].payload:
-                        content = point[0].payload["page_content"]
-                    elif "text" in point[0].payload:
-                        content = point[0].payload["text"]
-                    else:
-                        # For direct search results, try to get content from a separate lookup
-                        try:
-                            from langchain_community.vectorstores import QdrantVectorStore
-                            raw_results = QdrantVectorStore(
-                                client=client,
-                                collection_name=COLLECTION,
-                                embedding=EmbeddingWrapper(embedder),
-                            ).similarity_search_with_score(search_term, k=1, filter=Filter(must=[{"has_id": [result.id]}]))
-                            if raw_results:
-                                content = raw_results[0][0].page_content
-                        except:
-                            content = "Content preview not available"
-                
-                # Truncate long content
-                if len(content) > 100:
-                    content = content[:97] + "..."
-                
-                table.add_row(
-                    f"{score:.4f}",
-                    source,
-                    content
-                )
-                
-                # For the top 3 most similar documents, show more details
-                if i <= 3:
-                    rprint(f"[bold]Document {i} (Score: {score:.4f})[/bold]")
-                    rprint(f"Source: {source}")
-                    if len(content) > 100:
-                        rprint(f"Preview: {content[:100]}...")
-                    else:
-                        rprint(f"Content: {content}")
-                    rprint("")
-            
-            rprint(table)
-            
-            # Show collection stats
-            collection_info = client.get_collection(COLLECTION)
-            vector_count = collection_info.points_count
-            rprint(f"[dim]Knowledge base contains {vector_count} total vectors[/dim]")
-            
+                # In debug mode, show all metadata
+                if state.get("debug"):
+                    rprint(f"[bold cyan]Result {i+1} (score: {score:.4f}):[/bold cyan]")
+                    for k, v in res.payload.items():
+                        rprint(f"  [green]{k}:[/green] {v}")
+                else:
+                    rprint(f"[green]Result {i+1}:[/green] {source} (score: {score:.4f})")
+                    
+            rprint(f"[green]✅ Found {len(results)} results[/green]")
         except Exception as e:
             import traceback
             rprint(f"[red]❌ Error searching knowledge base: {e}[/red]")
@@ -555,165 +529,49 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             
     if cmd == ":search":
         if not args:
-            rprint("[red]⚠️ Topic required: :search TOPIC[/red]")
+            rprint("[red]⚠️ Search term required: :search TERM[/red]")
             return True
-            
-        if not EXA_KEY:
-            rprint("[red]❌ No Exa API key found. Set EXA_API_KEY in .env file.[/red]")
-            return True
-            
-        topic = args.strip()
-        rprint(f"[cyan]🔍 Researching topic: {topic}...[/cyan]")
+
+        search_term = args.strip()
+        rprint(f"[cyan]🔍 Web search for: {search_term}[/cyan]")
+        context = web_fallback(search_term, n_results=5)
         
-        # Create chain to generate research questions
-        question_prompt = PromptTemplate.from_template(
-            "Given the research topic: {topic}, generate 5 detailed research questions "
-            "to explore this topic thoroughly. Output as a numbered list, one per line."
+        if not context:
+            rprint("[red]❌ No web search results found.[/red]")
+            return True
+            
+        # Do a QA with the search results
+        qa_prompt = PromptTemplate.from_template(
+            "You are a helpful assistant. Use the following web search results to answer the question.\n"
+            "Clearly cite sources from the results.\n\n"
+            "Web search results:\n{context}\n\n"
+            "Question: {question}\nAnswer:"
         )
         
-        llm = state.get("llm")
-        if not llm:
-            llm = get_llm()
-            
-        # Generate questions
-        try:
-            q_result = llm.invoke(question_prompt.format(topic=topic))
-            if hasattr(q_result, 'content'):
-                q_text = q_result.content
-            else:
-                q_text = str(q_result)
-                
-            # Extract questions from numbered list
-            questions = [
-                line.lstrip("0123456789. ").strip()
-                for line in q_text.splitlines() if line.strip()
-            ]
-            
-            # Filter out non-question lines
-            questions = [q for q in questions if q and len(q) > 10]
-            
-            if not questions:
-                rprint("[yellow]⚠️ Could not generate research questions. Using topic directly.[/yellow]")
-                questions = [topic]
-            else:
-                rprint(f"[green]✅ Generated {len(questions)} research questions:[/green]")
-                for i, q in enumerate(questions, 1):
-                    rprint(f"   {i}. {q}")
-                    
-            # Perform searches for each question
-            rprint("[cyan]🌐 Searching web for information...[/cyan]")
-            exa = Exa(api_key=EXA_KEY)
-            enriched = []
-            total_results = 0
-            
-            for q in questions:
-                try:
-                    resp = exa.search_and_contents(
-                        q,
-                        use_autoprompt=True,
-                        num_results=3,  # Limit to 3 results per question
-                        text=True,
-                        highlights=True
-                    )
-                    # Process results
-                    if hasattr(resp, 'results'):
-                        results = resp.results
-                    else:
-                        results = resp
-                        
-                    snippets = []
-                    for item in results:
-                        snippet = ""
-                        if hasattr(item, "text"):
-                            snippet = item.text
-                        elif isinstance(item, dict) and "text" in item:
-                            snippet = item["text"]
-                            
-                        url = ""
-                        if hasattr(item, "url"):
-                            url = item.url
-                        elif isinstance(item, dict) and "url" in item:
-                            url = item["url"]
-                            
-                        if snippet and url:
-                            snippets.append(f"[{url}] {snippet}")
-                            
-                    if snippets:
-                        enriched.append(f"## {q}\n" + "\n\n".join(snippets))
-                        total_results += len(snippets)
-                except Exception as e:
-                    rprint(f"[yellow]⚠️ Search failed for question: {q} - {e}[/yellow]")
-                    
-            if not enriched:
-                rprint("[red]❌ No search results found. Try a different topic.[/red]")
-                return True
-                
-            # Combine all research
-            all_research = "\n\n".join(enriched)
-            
-            # Store in vector DB
-            from langchain_core.documents import Document
-            # Use the text splitter already imported
-            
-            # Process web results
-            docs = [
-                Document(page_content=text, metadata={"source": "web", "topic": topic})
-                for text in enriched
-            ]
-            
-            # Split into chunks if needed
-            splitter = TokenTextSplitter(
-                chunk_size=CHUNK_SIZE,
-                chunk_overlap=CHUNK_OVERLAP,
-                model_name="gpt-3.5-turbo",
-            )
-            chunks = splitter.split_documents(docs)
-            
-            # Get embedder and client
-            embedder = state.get("embedder")
-            client = connect_to_qdrant()
-            
-            # Create batch of embeddings and payloads
-            batch_vectors = []
-            payloads = []
-            for doc in chunks:
-                vector = embed_with_fallback(embedder, doc.page_content)
-                batch_vectors.append(vector)
-                payloads.append({"source": "web", "topic": topic})
-                
-            # Use a timestamp-based ID to avoid collisions
-            import time
-            start_id = int(time.time() * 1000)
-            
-            # Upsert to Qdrant
-            from qdrant_client import models as qmodels
-            client.upsert(
-                collection_name=COLLECTION,
-                points=[
-                    qmodels.PointStruct(id=start_id + i, vector=v, payload=payloads[i])
-                    for i, v in enumerate(batch_vectors)
-                ],
-            )
-            
-            # Get vector count
-            collection_info = client.get_collection(COLLECTION)
-            vector_count = collection_info.points_count
-            
-            rprint(
-                Panel.fit(
-                    f"🔖 Stored research for topic: [bold]{topic}[/bold]\n"
-                    f"📊 Found [bold]{total_results}[/bold] web results for [bold]{len(questions)}[/bold] questions\n"
-                    f"💾 Collection now contains [bold green]{vector_count}[/bold green] vectors.",
-                    title="Research Complete",
-                    border_style="blue",
-                )
-            )
-            
-        except Exception as e:
-            import traceback
-            rprint(f"[red]❌ Error during web research: {e}[/red]")
-            rprint(traceback.format_exc())
-            
+        # Create a dedicated chain for search
+        qa_chain = qa_prompt | state.get("llm")
+        
+        # Generate answer
+        answer = qa_chain.invoke({"context": context, "question": search_term})
+        
+        # Format and display
+        rprint(Panel.fit(answer, title="Web Search Results", border_style="green"))
+        return True
+
+    if cmd == ":debug":
+        if args.lower() in ("on", "true", "1"):
+            state["debug"] = True
+            rprint("[bold green]🔍 Debug mode ON - Detailed information will be shown[/bold green]")
+            # Set debug in CONFIG too for other components
+            CONFIG["debug"] = True
+        elif args.lower() in ("off", "false", "0"):
+            state["debug"] = False
+            rprint("[bold yellow]🔍 Debug mode OFF[/bold yellow]")
+            CONFIG["debug"] = False
+        else:
+            current = state.get("debug", False)
+            rprint(f"[cyan]🔍 Debug mode is currently {'ON' if current else 'OFF'}[/cyan]")
+            rprint("[cyan]Use ':debug on' or ':debug off' to change[/cyan]")
         return True
 
     if cmd == ":config":
@@ -727,6 +585,7 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
         # Add runtime settings
         table.add_row("memory_enabled", str(state.get("memory_enabled", False)))
         table.add_row("web_fallback_enabled", str(state.get("web_fallback", False)))
+        table.add_row("debug_mode", str(state.get("debug", False)))
 
         rprint(table)
         return True
@@ -776,6 +635,7 @@ def main():
             "  - [yellow]:search_kb[/yellow] [italic]<term>[/italic] → direct search in knowledge base\n"
             "  - [yellow]:ingest[/yellow] [italic]<path>[/italic] → add documents to knowledge base\n"
             "  - [yellow]:memory[/yellow] [italic]on/off[/italic] → toggle conversation memory\n"
+            "  - [yellow]:debug[/yellow] [italic]on/off[/italic] → toggle detailed debug info\n"
             "  - [yellow]:config[/yellow] → show current settings\n"
             "  - [yellow]:exit[/yellow] → quit the application",
             border_style="cyan",
@@ -792,11 +652,17 @@ def main():
     # Enhanced QA prompt that asks to cite sources
     qa_prompt = PromptTemplate.from_template(
         "You are a helpful assistant. Use the following context to answer the question.\n"
-        "If the context doesn't contain relevant information, say so.\n"
-        "If you use information from the context, cite the source when possible.\n\n"
+        "If the context doesn't contain relevant information to answer the question, clearly state that no relevant information is available.\n"
+        "If the context has SOME information on the topic but not enough to fully answer, use what's available and acknowledge the limitations.\n"
+        "Always cite sources from the context when using specific information.\n\n"
         "Context:\n{context}\n\n"
         "{history}\n\n"
-        "Question: {question}\nAnswer:"
+        "Question: {question}\n\n"
+        "Approach this in steps:\n"
+        "1. Analyze whether the context contains information related to the question\n"
+        "2. Extract relevant details from the context\n"
+        "3. Formulate a clear answer that synthesizes the information and cites sources\n\n"
+        "Answer:"
     )
     
     # Use RunnableSequence instead of LLMChain
@@ -861,16 +727,27 @@ def main():
                     source_info += f", relevance: {score:.2f}"
                 source_info += "]"
                 
+                # Add to context with source information
                 context_texts.append(f"{content}\n\n{source_info}")
                 sources.append(source)
                 
-                # Debug logging
+                # Enhanced debug logging
                 if state.get("debug"):
-                    rprint(f"[dim]Document {i+1}:[/dim]")
-                    rprint(f"[dim]  Source: {source} {page if page else ''}[/dim]")
+                    rprint(f"[cyan]Document {i+1}:[/cyan]")
+                    rprint(f"[green]  Source: {source} {page if page else ''}[/green]")
                     if score is not None:
-                        rprint(f"[dim]  Score: {score:.2f}[/dim]")
-                    rprint(f"[dim]  Length: {len(content)} chars[/dim]")
+                        rprint(f"[yellow]  Score: {score:.4f}[/yellow]")
+                    rprint(f"[blue]  Length: {len(content)} chars[/blue]")
+                    
+                    # Show content preview in debug mode
+                    if content:
+                        preview = content[:min(200, len(content))]
+                        if len(content) > 200:
+                            preview += "..."
+                        rprint(f"[dim]  Preview: {preview}[/dim]")
+                    else:
+                        rprint("[red]  Warning: Empty content![/red]")
+                    rprint("")  # Add spacing between documents
             
             # Display retrieval info
             rprint(f"[green]✅ Found {len(docs)} relevant documents[/green]")
@@ -894,7 +771,37 @@ def main():
             )
             continue
 
+        # Join context texts and ensure there's content
         context = "\n\n---\n\n".join(context_texts)
+        
+        # Extra debug for context verification
+        if state.get("debug"):
+            rprint(f"[cyan]Total context length: {len(context)} chars[/cyan]")
+            rprint("[cyan]Context sample (first 500 chars):[/cyan]")
+            rprint(f"[dim]{context[:min(500, len(context))]}{'...' if len(context) > 500 else ''}[/dim]")
+            
+            # Offer to save debug info to file
+            rprint("[yellow]Would you like to save debug info to a file? (y/n)[/yellow]")
+            save_debug = input().strip().lower()
+            if save_debug in ["y", "yes"]:
+                debug_file = f"debug_query_{int(time.time())}.txt"
+                with open(debug_file, "w") as f:
+                    f.write(f"QUERY: {user_input}\n\n")
+                    f.write(f"DOCUMENTS RETRIEVED: {len(docs)}\n\n")
+                    for i, doc in enumerate(docs):
+                        f.write(f"--- DOCUMENT {i+1} ---\n")
+                        f.write(f"Source: {doc.metadata.get('source', 'unknown')}\n")
+                        if 'page' in doc.metadata:
+                            f.write(f"Page: {doc.metadata['page']}\n")
+                        if 'score' in doc.metadata:
+                            f.write(f"Score: {doc.metadata['score']}\n")
+                        f.write(f"Content length: {len(doc.page_content)} chars\n")
+                        f.write("\nCONTENT:\n")
+                        f.write(doc.page_content)
+                        f.write("\n\n")
+                    f.write("--- FULL CONTEXT SENT TO LLM ---\n")
+                    f.write(context)
+                rprint(f"[green]Debug info saved to {debug_file}[/green]")
 
         # Get conversation history if memory is enabled
         history = ""

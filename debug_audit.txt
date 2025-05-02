@@ -1,0 +1,46 @@
+✅ Connected to Docker Qdrant
+Collections: ['kb']
+Collection 'kb' contains 233 vectors (size: 384)
+Vector Configuration:
+  Distance: Cosine
+  Size: 384
+
+Sample entries (5 of 233):
+
+Entry 1 (ID: 0):
+  Source: docs/sample.md
+
+Entry 2 (ID: 1):
+  Source: docs/2401.16508v1.pdf
+
+Entry 3 (ID: 2):
+  Source: docs/2401.16508v1.pdf
+
+Entry 4 (ID: 3):
+  Source: docs/2401.16508v1.pdf
+
+Entry 5 (ID: 4):
+  Source: docs/2401.16508v1.pdf
+
+SAMPLE DOCUMENTS (TABULAR)
+--------------------------
+Entry 1 (ID: 0)
+Source: docs/sample.md
+Content preview: 
+---
+Entry 2 (ID: 1)
+Source: docs/2401.16508v1.pdf
+Content preview: 
+---
+Entry 3 (ID: 2)
+Source: docs/2401.16508v1.pdf
+Content preview: 
+---
+Entry 4 (ID: 3)
+Source: docs/2401.16508v1.pdf
+Content preview: 
+---
+Entry 5 (ID: 4)
+Source: docs/2401.16508v1.pdf
+Content preview: 
+---
