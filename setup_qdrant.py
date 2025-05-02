@@ -2,68 +2,85 @@
 """
 setup_qdrant.py
 --------------
-Simple utility to create the 'kb' collection in Qdrant if it doesn't exist yet.
-Used by the Makefile to ensure the database is ready for use.
+Initialize Qdrant collection for LearningAgent.
+
+This script:
+1. Connects to local Qdrant (embedded or Docker)
+2. Creates a collection named 'kb' if it doesn't exist
 """
 
 import os
-import time
-import numpy as np
-from qdrant_client import QdrantClient, models as qmodels
+from qdrant_client import QdrantClient, models
+from rich import print as rprint
 
-# Constants
+# Default collection name and embedding dimension
 COLLECTION = "kb"
-EMBEDDING_SIZE = 384  # bge-small-en has 384 dimensions
+VECTOR_SIZE = 384  # BGE-Small-EN dimension
 
 
-def main():
-    """Initialize the Qdrant collection if it doesn't exist."""
-    # Try connecting to embedded Qdrant first
-    print("🔌 Connecting to Qdrant...")
-    
-    # First try local embedded mode
+def connect_to_qdrant():
+    """Try to connect to Qdrant, first embedded then Docker."""
+    # Try embedded Qdrant first
     try:
         client = QdrantClient(path="./qdrant_data")
-        print("✅ Connected to embedded Qdrant")
+        # Quick test to make sure it works
+        client.get_collections()
+        rprint("[green]✅ Connected to embedded Qdrant[/green]")
+        return client
     except Exception as e:
-        print(f"⚠️ Could not connect to embedded Qdrant: {e}")
-        
+        rprint(f"[yellow]⚠️ Could not connect to embedded Qdrant: {e}[/yellow]")
+        rprint("[cyan]🔄 Trying Docker Qdrant connection...[/cyan]")
+
         # Try Docker connection
         try:
             client = QdrantClient(host="localhost", port=6333)
             # Simple health check
             client.get_collections()
-            print("✅ Connected to Docker Qdrant")
+            rprint("[green]✅ Connected to Docker Qdrant[/green]")
+            return client
         except Exception as docker_e:
-            print(f"❌ Failed to connect to Docker Qdrant: {docker_e}")
-            print("💡 Tips:")
-            print("  - Run 'make start_qdrant' to start Qdrant Docker")
-            print("  - Or make sure ./qdrant_data directory exists and is writable")
-            return
+            rprint(f"[red]❌ Failed to connect to Docker Qdrant: {docker_e}[/red]")
+            rprint("[yellow]💡 Tips:[/yellow]")
+            rprint(
+                "[yellow]  - Run 'make start_qdrant' to start Qdrant Docker[/yellow]"
+            )
+            rprint(
+                "[yellow]  - Or make sure ./qdrant_data directory exists and is writable[/yellow]"
+            )
+            raise RuntimeError("Could not connect to any Qdrant instance")
+
+
+def ensure_collection(client, collection_name=COLLECTION, vector_size=VECTOR_SIZE):
+    """Create collection if it doesn't exist."""
+    collections = client.get_collections().collections
+    collection_names = [collection.name for collection in collections]
     
-    # Check if collection exists
-    try:
-        existing = [c.name for c in client.get_collections().collections]
-        if COLLECTION in existing:
-            print(f"✅ Collection '{COLLECTION}' already exists.")
-            return
-    except Exception as e:
-        print(f"❌ Error checking collections: {e}")
+    if collection_name in collection_names:
+        rprint(f"[green]✅ Collection '{collection_name}' already exists.[/green]")
+        # Verify vector size matches
+        collection_info = client.get_collection(collection_name)
+        if 'vector_size' in collection_info.config.params:
+            actual_size = collection_info.config.params.vector_size
+            if actual_size != vector_size:
+                rprint(f"[yellow]⚠️ Collection has vector size {actual_size}, but expected {vector_size}.[/yellow]")
         return
     
     # Create collection
-    try:
-        print(f"🏗️  Creating collection '{COLLECTION}'...")
-        client.create_collection(
-            collection_name=COLLECTION,
-            vectors_config=qmodels.VectorParams(
-                size=EMBEDDING_SIZE, 
-                distance=qmodels.Distance.COSINE
-            ),
-        )
-        print(f"✅ Collection '{COLLECTION}' created successfully.")
-    except Exception as e:
-        print(f"❌ Error creating collection: {e}")
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=models.VectorParams(
+            size=vector_size,
+            distance=models.Distance.COSINE
+        ),
+    )
+    rprint(f"[green]✅ Created collection '{collection_name}'.[/green]")
+
+
+def main():
+    """Main function."""
+    rprint("[cyan]🔌 Connecting to Qdrant...[/cyan]")
+    client = connect_to_qdrant()
+    ensure_collection(client)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import List
+import os
 
 from qdrant_client import QdrantClient, models as qmodels
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -49,9 +50,12 @@ except ImportError:
 
 # Text splitter import
 try:
-    from langchain_text_splitters.text_splitter import TokenTextSplitter
+    from langchain_text_splitters import TokenTextSplitter
 except ImportError:
-    from langchain.text_splitter import TokenTextSplitter
+    try:
+        from langchain_community.text_splitters import TokenTextSplitter
+    except ImportError:
+        from langchain.text_splitter import TokenTextSplitter
 
 from rich import print as rprint
 
@@ -66,23 +70,90 @@ CHUNK_OVERLAP = 200
 def load_files(path: Path) -> List[Document]:
     """Recursively load supported files into LangChain Document objects."""
     docs: List[Document] = []
-    for file in path.rglob("*"):
+    files_to_process = [path] if path.is_file() else list(path.rglob("*"))
+    
+    for file in files_to_process:
         if file.is_dir():
             continue
         suffix = file.suffix.lower()
         try:
             if suffix == ".pdf":
-                docs.extend(PyPDFLoader(str(file)).load())
+                rprint(f"[cyan]📄 Loading PDF: {file}[/cyan]")
+                try:
+                    # Direct PyPDF reader approach (most reliable)
+                    from pypdf import PdfReader
+                    reader = PdfReader(str(file))
+                    rprint(f"[green]✅ PDF has {len(reader.pages)} pages[/green]")
+                    
+                    for i, page in enumerate(reader.pages):
+                        text = page.extract_text()
+                        if text and text.strip():  # Only add non-empty pages
+                            docs.append(Document(
+                                page_content=text.strip(),
+                                metadata={"source": str(file), "page": i+1}
+                            ))
+                            rprint(f"[green]✅ Extracted page {i+1}: {len(text)} chars[/green]")
+                        else:
+                            rprint(f"[yellow]⚠️ Page {i+1} has no extractable text[/yellow]")
+                except Exception as pdf_err:
+                    rprint(f"[red]❌ Failed to read PDF: {pdf_err}[/red]")
+                    # Try using LangChain loaders as fallback
+                    try:
+                        rprint("[yellow]⚠️ Trying PyPDFLoader as fallback...[/yellow]")
+                        docs.extend(PyPDFLoader(str(file)).load())
+                    except Exception as lc_err:
+                        rprint(f"[red]❌ PyPDFLoader also failed: {lc_err}[/red]")
+                        raise
             elif suffix in {".md", ".txt"}:
+                rprint(f"[cyan]📄 Loading text file: {file}[/cyan]")
                 docs.extend(TextLoader(str(file), encoding="utf-8").load())
             elif suffix == ".json":
+                rprint(f"[cyan]📄 Loading JSON file: {file}[/cyan]")
                 # load entire json as a string; user can customise
                 with open(file, encoding="utf-8") as f:
                     docs.append(
                         Document(page_content=json.dumps(json.load(f), indent=2))
                     )
+            elif suffix in {".docx", ".doc"}:
+                rprint(f"[cyan]📄 Loading Word document: {file}[/cyan]")
+                try:
+                    from langchain_community.document_loaders import Docx2txtLoader
+                    docs.extend(Docx2txtLoader(str(file)).load())
+                    rprint(f"[green]✅ Successfully loaded Word document: {file}[/green]")
+                except Exception as docx_err:
+                    rprint(f"[red]❌ Failed to load Word document: {docx_err}[/red]")
+                    # Try alternative docx loader
+                    try:
+                        from langchain_community.document_loaders import UnstructuredWordDocumentLoader
+                        docs.extend(UnstructuredWordDocumentLoader(str(file)).load())
+                        rprint(f"[green]✅ Successfully loaded Word document with UnstructuredLoader: {file}[/green]")
+                    except Exception as unstr_err:
+                        rprint(f"[red]❌ All Word document loaders failed: {unstr_err}[/red]")
+                        raise
+            elif suffix in {".pptx", ".ppt"}:
+                rprint(f"[cyan]📄 Loading PowerPoint presentation: {file}[/cyan]")
+                try:
+                    from langchain_community.document_loaders import UnstructuredPowerPointLoader
+                    docs.extend(UnstructuredPowerPointLoader(str(file)).load())
+                    rprint(f"[green]✅ Successfully loaded PowerPoint: {file}[/green]")
+                except Exception as ppt_err:
+                    rprint(f"[red]❌ Failed to load PowerPoint: {ppt_err}[/red]")
+                    raise
+            elif suffix in {".html", ".htm"}:
+                rprint(f"[cyan]📄 Loading HTML file: {file}[/cyan]")
+                try:
+                    from langchain_community.document_loaders import BSHTMLLoader
+                    docs.extend(BSHTMLLoader(str(file)).load())
+                    rprint(f"[green]✅ Successfully loaded HTML: {file}[/green]")
+                except Exception as html_err:
+                    rprint(f"[red]❌ Failed to load HTML: {html_err}[/red]")
+                    raise
+            else:
+                rprint(f"[yellow]⚠️ Unsupported file type: {suffix}[/yellow]")
         except Exception as err:  # noqa: BLE001
-            rprint(f"[yellow]⚠️  Skipped {file}: {err}[/yellow]")
+            rprint(f"[red]❌ Failed to process {file}: {err}[/red]")
+    
+    rprint(f"[green]✅ Successfully loaded {len(docs)} documents[/green]")
     return docs
 
 
@@ -163,14 +234,27 @@ def main() -> None:
             root.mkdir(parents=True, exist_ok=True)
         else:
             raise SystemExit(f"Path {root} does not exist")
+            
+    # For individual files, verify it exists and is readable
+    if root.is_file():
+        if not os.access(root, os.R_OK):
+            raise SystemExit(f"File {root} exists but is not readable")
+        rprint(f"[green]✅ Found file {root} ({root.stat().st_size} bytes)[/green]")
 
-    if not list(root.glob('*')) and (args.path == "./docs" or args.path == "docs"):
+    if not list(root.glob('*')) and not root.is_file() and (args.path == "./docs" or args.path == "docs"):
         rprint("[yellow]⚠️ No files found in docs directory. Add some files and try again.[/yellow]")
         rprint("[green]✅ Directory exists and is ready for documents.[/green]")
         return
 
     rprint(f"[cyan]🔍 Loading documents from {root}...[/cyan]")
-    raw_docs = load_files(root)
+    
+    try:
+        raw_docs = load_files(root)
+    except Exception as e:
+        import traceback
+        rprint(f"[red]❌ Error during document loading: {e}[/red]")
+        rprint(f"[red]{traceback.format_exc()}[/red]")
+        return
     
     if not raw_docs:
         rprint("[yellow]⚠️ No documents were loaded. Check file types and permissions.[/yellow]")

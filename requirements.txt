@@ -1,28 +1,26 @@
-# ---- Core Orchestration ----
+# Core dependencies
 langchain>=0.1.0
 langchain-core>=0.1.0
-langchain_text_splitters>=0.1.0
-langchain-community>=0.0.1  # Needed for document loaders and other components
+langchain-community>=0.0.16
+langchain-ollama>=0.0.2
+langchain-qdrant>=0.0.1
+langchain-text-splitters>=0.0.1
+langchain-exa>=0.0.3
 
-# ---- Vector DB + Qdrant integration ----
-langchain-qdrant>=0.1.0
+# Embeddings and vector DB
+fastembed>=0.1.0
 qdrant-client>=1.7.0
 
-# ---- Web Retrieval (Exa MCP) ----
-langchain-exa>=0.1.0
-exa-py>=1.0.0
+# Document processing
+pypdf>=3.17.1
+pymupdf>=1.23.8  # Alternative PDF reader
 
-# ---- Local Embeddings (CPU‑efficient) ----
-fastembed>=0.1.0,<0.2.0
-numpy>=1.20.0  # Required for numpy.typing.NDArray
-
-# ---- Local LLM via Ollama ----
-langchain-ollama>=0.1.0
-
-# ---- Document Loading & Utilities ----
-pypdf>=4.0.0
-pymupdf>=1.23.0
-pyyaml>=6.0.0
+# Utilities
 rich>=13.0.0
 python-dotenv>=1.0.0
-tiktoken>=0.5.0  # Required for TokenTextSplitter
+
+# Optional but recommended for enhanced tokenization
+tiktoken>=0.5.2
+
+# Web search
+exa-py>=1.12.0
