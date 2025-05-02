@@ -5,7 +5,7 @@ docs/*
 qdrant_data/*
 
 # Ignore contents of WorkingExample folder
-WorkingExample/*
+WorkingExample
 
 .env__pycache__/
 .env
