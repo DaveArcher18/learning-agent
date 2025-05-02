@@ -16,8 +16,16 @@ Run:
 import argparse
 import os
 import yaml
+import warnings
+import re
+import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any
+
+# Suppress LangChain deprecation warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*was deprecated.*")
+warnings.filterwarnings("ignore", message=".*TOKENIZERS_PARALLELISM.*")
 
 from dotenv import load_dotenv
 from rich import print as rprint
@@ -25,59 +33,77 @@ from rich.panel import Panel
 from rich.table import Table
 
 # ---- LangChain core ----
-try:
-    from langchain_ollama import Ollama
-except ImportError:
-    from langchain.llms import Ollama
+# Ollama import is handled in get_llm() function now
 
 # Memory imports - try new path first, then fall back to old path
 try:
-    from langchain_core.memory import ConversationBufferMemory
-except ImportError:
     from langchain.memory import ConversationBufferMemory
+except ImportError:
+    try:
+        from langchain_core.memory import ConversationBufferMemory
+    except ImportError:
+        from langchain_community.memory import ConversationBufferMemory
 
 # Prompts imports
 try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
-    from langchain.prompts import PromptTemplate
+    from langchain_community.prompts import PromptTemplate
 
 # Runnable imports
 try:
     from langchain_core.runnables import RunnablePassthrough, RunnableParallel
 except ImportError:
-    from langchain.schema.runnable import RunnablePassthrough, RunnableParallel
+    from langchain_community.schema.runnable import RunnablePassthrough, RunnableParallel
 
 # Chains imports
-from langchain.chains import LLMChain
+try:
+    from langchain.chains import LLMChain
+except ImportError:
+    from langchain_core.chains import LLMChain
 
 # ---- Vector & embeddings ----
 try:
-    # Use newer TextEmbedding (recommended)
-    from fastembed import TextEmbedding as Embedder
+    # Import fastembed directly - new API
+    import fastembed
+    Embedder = fastembed.TextEmbedding
 except ImportError:
     try:
-        # Try legacy FlagEmbedding
-        from fastembed import FlagEmbedding as Embedder
+        # Use newer TextEmbedding (recommended)
+        from fastembed import TextEmbedding as Embedder
     except ImportError:
-        # Try the oldest location
-        from fastembed.embedding import FlagEmbedding as Embedder
+        try:
+            # Try legacy FlagEmbedding
+            from fastembed import FlagEmbedding as Embedder
+        except ImportError:
+            # Try the oldest location
+            from fastembed.embedding import FlagEmbedding as Embedder
 
 from qdrant_client import QdrantClient
 try:
     from langchain_qdrant import QdrantVectorStore, RetrievalMode
 except ImportError:
-    from langchain.vectorstores import QdrantVectorStore
+    from langchain_community.vectorstores import QdrantVectorStore
     RetrievalMode = None  # Might not be available in older versions
 
 # Multi-query retriever
 try:
-    from langchain_community.retrievers.multi_query import MultiQueryRetriever
-except ImportError:
     from langchain.retrievers.multi_query import MultiQueryRetriever
+except ImportError:
+    try:
+        from langchain_community.retrievers.multi_query import MultiQueryRetriever
+    except ImportError:
+        from langchain.retrievers import MultiQueryRetriever
 
 # ---- Exa search ----
 from exa_py import Exa  # Exa's official SDK
+
+# ---- Text splitters ----
+try:
+    from langchain_text_splitters import TokenTextSplitter, CharacterTextSplitter
+except ImportError:
+    # Fall back to community package if needed
+    from langchain_community.text_splitters import TokenTextSplitter, CharacterTextSplitter
 
 
 # --------------------------------------------------------------------------- #
@@ -126,11 +152,24 @@ if not EXA_KEY and CONFIG.get("use_web_fallback", True):
 # --------------------------------------------------------------------------- #
 #                               Helper funcs                                  #
 # --------------------------------------------------------------------------- #
-def init_llm(model: str = None, temperature: float = None):
-    """Return an Ollama LLM wrapped for LangChain."""
-    model = model or CONFIG.get("model", "qwen3:4b")
+def get_llm(model=None, temperature=None):
+    """Create an LLM instance."""
+    model = model or CONFIG.get("model", "qwen3:1.7b")
     temperature = temperature or CONFIG.get("temperature", 0.3)
-    return Ollama(model=model, temperature=temperature, timeout=120)
+    
+    # Try to use OllamaLLM (the new recommended class)
+    try:
+        from langchain_ollama import OllamaLLM
+        return OllamaLLM(model=model, temperature=temperature, timeout=120)
+    except ImportError:
+        # Fall back to Ollama if OllamaLLM isn't available
+        try:
+            from langchain_ollama import Ollama
+            return Ollama(model=model, temperature=temperature, timeout=120)
+        except ImportError:
+            # Last resort fallback
+            from langchain_community.llms import Ollama
+            return Ollama(model=model, temperature=temperature, timeout=120)
 
 
 def connect_to_qdrant():
@@ -223,15 +262,24 @@ def build_retriever(vector_store, llm, top_k: int):
 def embed_with_fallback(embedder, text):
     """Try to embed text with fallback to handle API changes."""
     try:
-        # Try new API
+        # Try new API (v0.6.x+)
+        if hasattr(embedder, "embed_documents"):
+            # fastembed 0.6.x+ API style
+            vectors = embedder.embed_documents([text])
+            return vectors[0]
+        # Try new API (v0.3.x - v0.5.x)
         vector = embedder.embed(text)
-        # Check if it's an iterator
-        if hasattr(vector, "__next__"):
+        # Check if it's an iterator or generator
+        if hasattr(vector, "__iter__") and not isinstance(vector, (list, np.ndarray)):
             vector = next(vector)
-    except Exception:
-        # Fall back to old API
-        vector = embedder.embed(text)
-    return vector
+        return vector
+    except Exception as e:
+        try:
+            # Fall back to old API as a batch
+            vector = embedder.embed([text])[0]
+            return vector
+        except Exception as e2:
+            raise ValueError(f"Failed to embed text: {str(e)} | {str(e2)}")
 
 
 def web_fallback(query: str, n_results: int = 3) -> str:
@@ -252,12 +300,32 @@ def web_fallback(query: str, n_results: int = 3) -> str:
         )
 
         # Store web results in vector DB for future reference
-        web_texts = [res["content"] for res in results[:n_results]]
+        web_texts = []
+        # Handle different response formats in different exa-py versions
+        if isinstance(results, list) and len(results) > 0:
+            # Handle list format (newer versions)
+            for res in results[:n_results]:
+                if 'content' in res:
+                    web_texts.append(res['content'])
+                elif 'text' in res:
+                    web_texts.append(res['text'])
+        elif hasattr(results, 'results') and hasattr(results.results, '__iter__'):
+            # Handle object format (older versions)
+            for res in results.results[:n_results]:
+                if hasattr(res, 'content'):
+                    web_texts.append(res.content)
+                elif hasattr(res, 'text'):
+                    web_texts.append(res.text)
+                
         if web_texts:
             try:
                 from langchain_core.documents import Document
-                from langchain_text_splitters.text_splitter import TokenTextSplitter
-
+                # Use the text splitter already imported
+                splitter = TokenTextSplitter(
+                    chunk_size=CHUNK_SIZE,
+                    chunk_overlap=CHUNK_OVERLAP,
+                    model_name="gpt-3.5-turbo",
+                )
                 # Process web results like other documents
                 docs = [
                     Document(page_content=text, metadata={"source": "web"})
@@ -265,11 +333,6 @@ def web_fallback(query: str, n_results: int = 3) -> str:
                 ]
 
                 # Split into chunks
-                splitter = TokenTextSplitter(
-                    chunk_size=CHUNK_SIZE,
-                    chunk_overlap=CHUNK_OVERLAP,
-                    model_name="gpt-3.5-turbo",
-                )
                 chunks = splitter.split_documents(docs)
 
                 # Get embedder and client
@@ -357,6 +420,169 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             rprint(f"[red]❌ Error ingesting documents: {e}[/red]")
         return True
 
+    if cmd == ":search":
+        if not args:
+            rprint("[red]⚠️ Topic required: :search TOPIC[/red]")
+            return True
+            
+        if not EXA_KEY:
+            rprint("[red]❌ No Exa API key found. Set EXA_API_KEY in .env file.[/red]")
+            return True
+            
+        topic = args.strip()
+        rprint(f"[cyan]🔍 Researching topic: {topic}...[/cyan]")
+        
+        # Create chain to generate research questions
+        question_prompt = PromptTemplate.from_template(
+            "Given the research topic: {topic}, generate 5 detailed research questions "
+            "to explore this topic thoroughly. Output as a numbered list, one per line."
+        )
+        
+        llm = state.get("llm")
+        if not llm:
+            llm = get_llm()
+            
+        # Generate questions
+        try:
+            q_result = llm.invoke(question_prompt.format(topic=topic))
+            if hasattr(q_result, 'content'):
+                q_text = q_result.content
+            else:
+                q_text = str(q_result)
+                
+            # Extract questions from numbered list
+            questions = [
+                line.lstrip("0123456789. ").strip()
+                for line in q_text.splitlines() if line.strip()
+            ]
+            
+            # Filter out non-question lines
+            questions = [q for q in questions if q and len(q) > 10]
+            
+            if not questions:
+                rprint("[yellow]⚠️ Could not generate research questions. Using topic directly.[/yellow]")
+                questions = [topic]
+            else:
+                rprint(f"[green]✅ Generated {len(questions)} research questions:[/green]")
+                for i, q in enumerate(questions, 1):
+                    rprint(f"   {i}. {q}")
+                    
+            # Perform searches for each question
+            rprint("[cyan]🌐 Searching web for information...[/cyan]")
+            exa = Exa(api_key=EXA_KEY)
+            enriched = []
+            total_results = 0
+            
+            for q in questions:
+                try:
+                    resp = exa.search_and_contents(
+                        q,
+                        use_autoprompt=True,
+                        num_results=3,  # Limit to 3 results per question
+                        text=True,
+                        highlights=True
+                    )
+                    # Process results
+                    if hasattr(resp, 'results'):
+                        results = resp.results
+                    else:
+                        results = resp
+                        
+                    snippets = []
+                    for item in results:
+                        snippet = ""
+                        if hasattr(item, "text"):
+                            snippet = item.text
+                        elif isinstance(item, dict) and "text" in item:
+                            snippet = item["text"]
+                            
+                        url = ""
+                        if hasattr(item, "url"):
+                            url = item.url
+                        elif isinstance(item, dict) and "url" in item:
+                            url = item["url"]
+                            
+                        if snippet and url:
+                            snippets.append(f"[{url}] {snippet}")
+                            
+                    if snippets:
+                        enriched.append(f"## {q}\n" + "\n\n".join(snippets))
+                        total_results += len(snippets)
+                except Exception as e:
+                    rprint(f"[yellow]⚠️ Search failed for question: {q} - {e}[/yellow]")
+                    
+            if not enriched:
+                rprint("[red]❌ No search results found. Try a different topic.[/red]")
+                return True
+                
+            # Combine all research
+            all_research = "\n\n".join(enriched)
+            
+            # Store in vector DB
+            from langchain_core.documents import Document
+            # Use the text splitter already imported
+            
+            # Process web results
+            docs = [
+                Document(page_content=text, metadata={"source": "web", "topic": topic})
+                for text in enriched
+            ]
+            
+            # Split into chunks if needed
+            splitter = TokenTextSplitter(
+                chunk_size=CHUNK_SIZE,
+                chunk_overlap=CHUNK_OVERLAP,
+                model_name="gpt-3.5-turbo",
+            )
+            chunks = splitter.split_documents(docs)
+            
+            # Get embedder and client
+            embedder = state.get("embedder")
+            client = connect_to_qdrant()
+            
+            # Create batch of embeddings and payloads
+            batch_vectors = []
+            payloads = []
+            for doc in chunks:
+                vector = embed_with_fallback(embedder, doc.page_content)
+                batch_vectors.append(vector)
+                payloads.append({"source": "web", "topic": topic})
+                
+            # Use a timestamp-based ID to avoid collisions
+            import time
+            start_id = int(time.time() * 1000)
+            
+            # Upsert to Qdrant
+            from qdrant_client import models as qmodels
+            client.upsert(
+                collection_name=COLLECTION,
+                points=[
+                    qmodels.PointStruct(id=start_id + i, vector=v, payload=payloads[i])
+                    for i, v in enumerate(batch_vectors)
+                ],
+            )
+            
+            # Get vector count
+            collection_info = client.get_collection(COLLECTION)
+            vector_count = collection_info.points_count
+            
+            rprint(
+                Panel.fit(
+                    f"🔖 Stored research for topic: [bold]{topic}[/bold]\n"
+                    f"📊 Found [bold]{total_results}[/bold] web results for [bold]{len(questions)}[/bold] questions\n"
+                    f"💾 Collection now contains [bold green]{vector_count}[/bold green] vectors.",
+                    title="Research Complete",
+                    border_style="blue",
+                )
+            )
+            
+        except Exception as e:
+            import traceback
+            rprint(f"[red]❌ Error during web research: {e}[/red]")
+            rprint(traceback.format_exc())
+            
+        return True
+
     if cmd == ":config":
         table = Table(title="Current Configuration")
         table.add_column("Setting", style="cyan")
@@ -407,13 +633,21 @@ def main():
 
     rprint(
         Panel(
-            "🚀 [bold cyan]LearningAgent Ready[/bold cyan]\nType ':exit' to quit, ':config' to show settings.",
+            "🚀 [bold cyan]LearningAgent Ready[/bold cyan]\n\n"
+            "📚 [bold]Commands:[/bold]\n"
+            "  - Type your questions to chat with the agent\n"
+            "  - [yellow]:search[/yellow] [italic]<topic>[/italic] → run web search on a topic\n"
+            "  - [yellow]:ingest[/yellow] [italic]<path>[/italic] → add documents to knowledge base\n"
+            "  - [yellow]:memory[/yellow] [italic]on/off[/italic] → toggle conversation memory\n"
+            "  - [yellow]:config[/yellow] → show current settings\n"
+            "  - [yellow]:exit[/yellow] → quit the application",
             border_style="cyan",
+            title="Welcome",
         )
     )
 
     # LLM & retriever
-    llm = init_llm()
+    llm = get_llm()
     embedder = Embedder(EMBED_MODEL_NAME)
     vector_store = init_vector_store(embedder)
     retriever = build_retriever(vector_store, llm, args.top_k)
@@ -426,7 +660,9 @@ def main():
         "{history}\n\n"
         "Question: {question}\nAnswer:"
     )
-    qa_chain = LLMChain(llm=llm, prompt=qa_prompt)
+    
+    # Use RunnableSequence instead of LLMChain
+    qa_chain = qa_prompt | llm
 
     # State dictionary to hold runtime config
     state = {
@@ -434,6 +670,7 @@ def main():
         "web_fallback": not args.no_web and CONFIG.get("use_web_fallback", True),
         "top_k": args.top_k,
         "embedder": embedder,
+        "llm": llm,
     }
 
     # Setup memory if enabled
@@ -490,13 +727,24 @@ def main():
                 history = "Previous conversation:\n" + memory_buffer
 
         # ===== LLM phase =====
-        answer = qa_chain.run(
-            {"context": context, "question": user_input, "history": history}
-        )
-        rprint(Panel.fit(answer, title="Assistant", border_style="green"))
+        answer = qa_chain.invoke({"context": context, "question": user_input, "history": history})
+        
+        # Clean up the answer to remove <think> sections and any other assistant markup
+        clean_answer = answer
+        # Remove <think>...</think> blocks
+        clean_answer = re.sub(r'<think>.*?</think>', '', clean_answer, flags=re.DOTALL)
+        # Remove any remaining XML-like tags
+        clean_answer = re.sub(r'<[^>]+>', '', clean_answer)
+        # Remove any lines with only dashes or empty lines at the beginning/end
+        clean_answer = re.sub(r'^[\s\-]+', '', clean_answer)
+        clean_answer = re.sub(r'[\s\-]+$', '', clean_answer)
+        # Trim whitespace
+        clean_answer = clean_answer.strip()
+        
+        rprint(Panel.fit(clean_answer, title="Assistant", border_style="green"))
 
         if state.get("memory"):
-            state["memory"].save_context({"input": user_input}, {"output": answer})
+            state["memory"].save_context({"input": user_input}, {"output": clean_answer})
 
             # Store conversation in vector DB for future reference
             try:
@@ -504,7 +752,7 @@ def main():
 
                 # Create document from conversation turn
                 conv_doc = Document(
-                    page_content=f"Q: {user_input}\nA: {answer}",
+                    page_content=f"Q: {user_input}\nA: {clean_answer}",
                     metadata={"source": "conversation", "type": "memory"},
                 )
 

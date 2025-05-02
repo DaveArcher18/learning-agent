@@ -83,10 +83,11 @@ Once the agent is running:
 > ingest docs or ask questions interactively
 
 Commands:
-  :exit        quit
-  :ingest PATH ingest new docs on the fly
-  :config      show current RAG params
-  :memory off  toggle conversation memory
+  :exit             quit the application
+  :ingest PATH      ingest new docs on the fly
+  :search TOPIC     search the web on a topic and store results
+  :config           show current RAG params
+  :memory on/off    toggle conversation memory
 ```
 
 ## Advanced RAG Techniques
