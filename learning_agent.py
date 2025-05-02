@@ -395,7 +395,12 @@ def web_fallback(query: str, n_results: int = 3) -> str:
                     batch_vectors.append(
                         embed_with_fallback(embedder, doc.page_content)
                     )
-                    payloads.append({"source": "web", "query": query})
+                    # Include page_content in the payload to match ingest.py
+                    payloads.append({
+                        "source": "web", 
+                        "query": query,
+                        "page_content": doc.page_content
+                    })
 
                 # Use a timestamp-based ID to avoid collisions
                 import time
