@@ -154,11 +154,7 @@ if not EXA_KEY and CONFIG.get("use_web_fallback", True):
 # --------------------------------------------------------------------------- #
 def get_llm(model=None, temperature=None):
     """Create an LLM instance."""
-<<<<<<< HEAD
     model = model or CONFIG.get("model", "qwen3:4b")
-=======
-    model = model or CONFIG.get("model", "qwen3:1.7b")
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
     temperature = temperature or CONFIG.get("temperature", 0.3)
     
     # Try to use OllamaLLM (the new recommended class)
@@ -258,7 +254,6 @@ def init_vector_store(embedder: Embedder):
 
 
 def build_retriever(vector_store, llm, top_k: int):
-<<<<<<< HEAD
     """Hybrid + MultiQuery expansion with similarity threshold."""
     similarity_threshold = CONFIG.get("similarity_threshold", 0.5)
     # Base retriever with similarity threshold filter
@@ -278,11 +273,6 @@ def build_retriever(vector_store, llm, top_k: int):
         # Fallback for older versions
         rprint("[yellow]⚠️ Using basic retriever (similarity threshold not supported)[/yellow]")
         return vector_store.as_retriever(search_kwargs={"k": top_k})
-=======
-    """Hybrid + MultiQuery expansion."""
-    base = vector_store.as_retriever(search_kwargs={"k": top_k})
-    return MultiQueryRetriever.from_llm(retriever=base, llm=llm)
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
 
 
 def embed_with_fallback(embedder, text):
@@ -350,11 +340,7 @@ def web_fallback(query: str, n_results: int = 3) -> str:
                 splitter = TokenTextSplitter(
                     chunk_size=CHUNK_SIZE,
                     chunk_overlap=CHUNK_OVERLAP,
-<<<<<<< HEAD
-                    model_name="gpt-3.5-turbo", #This is correct! Do not change it. 
-=======
                     model_name="gpt-3.5-turbo",
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
                 )
                 # Process web results like other documents
                 docs = [
@@ -367,11 +353,7 @@ def web_fallback(query: str, n_results: int = 3) -> str:
 
                 # Get embedder and client
                 embedder = Embedder(EMBED_MODEL_NAME)
-<<<<<<< HEAD
                 client = connect_to_qdrant()
-=======
-                client = QdrantClient(path="./qdrant_data")
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
 
                 # Create batch of embeddings and payloads
                 batch_vectors = []
@@ -438,14 +420,9 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
                 batch_vectors.append(embed_with_fallback(embedder, doc.page_content))
                 payloads.append({"source": doc.metadata.get("source", "local")})
 
-<<<<<<< HEAD
             # Use the same client that's already connected in the main application
             # instead of creating a new one
             client = connect_to_qdrant()
-=======
-            # Upsert to Qdrant
-            client = QdrantClient(path="./qdrant_data")
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
             from qdrant_client import models as qmodels
 
             client.upsert(
@@ -458,7 +435,6 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             rprint(f"[green]✅ Added {len(batch_vectors)} chunks from {path}[/green]")
         except Exception as e:
             rprint(f"[red]❌ Error ingesting documents: {e}[/red]")
-<<<<<<< HEAD
             # Provide a hint about Docker if embedded Qdrant fails
             if "already accessed by another instance" in str(e):
                 rprint("[yellow]💡 Try using Docker-based Qdrant instead:[/yellow]")
@@ -574,11 +550,9 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             rprint(f"[red]❌ Error searching knowledge base: {e}[/red]")
             if state.get("debug"):
                 rprint(traceback.format_exc())
-            
-=======
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
+        
         return True
-
+            
     if cmd == ":search":
         if not args:
             rprint("[red]⚠️ Topic required: :search TOPIC[/red]")
@@ -691,11 +665,7 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             splitter = TokenTextSplitter(
                 chunk_size=CHUNK_SIZE,
                 chunk_overlap=CHUNK_OVERLAP,
-<<<<<<< HEAD
-                model_name=EMBED_MODEL_NAME,
-=======
                 model_name="gpt-3.5-turbo",
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
             )
             chunks = splitter.split_documents(docs)
             
@@ -792,12 +762,9 @@ def main():
     parser.add_argument(
         "--top-k", type=int, default=DEFAULT_TOP_K, help="Top-k retrieval"
     )
-<<<<<<< HEAD
     parser.add_argument(
         "--debug", action="store_true", help="Enable debug mode with detailed output"
     )
-=======
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
     args = parser.parse_args()
 
     rprint(
@@ -806,10 +773,7 @@ def main():
             "📚 [bold]Commands:[/bold]\n"
             "  - Type your questions to chat with the agent\n"
             "  - [yellow]:search[/yellow] [italic]<topic>[/italic] → run web search on a topic\n"
-<<<<<<< HEAD
             "  - [yellow]:search_kb[/yellow] [italic]<term>[/italic] → direct search in knowledge base\n"
-=======
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
             "  - [yellow]:ingest[/yellow] [italic]<path>[/italic] → add documents to knowledge base\n"
             "  - [yellow]:memory[/yellow] [italic]on/off[/italic] → toggle conversation memory\n"
             "  - [yellow]:config[/yellow] → show current settings\n"
@@ -825,18 +789,11 @@ def main():
     vector_store = init_vector_store(embedder)
     retriever = build_retriever(vector_store, llm, args.top_k)
 
-<<<<<<< HEAD
     # Enhanced QA prompt that asks to cite sources
     qa_prompt = PromptTemplate.from_template(
         "You are a helpful assistant. Use the following context to answer the question.\n"
         "If the context doesn't contain relevant information, say so.\n"
         "If you use information from the context, cite the source when possible.\n\n"
-=======
-    # Simple QA prompt
-    qa_prompt = PromptTemplate.from_template(
-        "You are a helpful assistant. Use the following context to answer the question.\n"
-        "If you don't know, say so.\n\n"
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
         "Context:\n{context}\n\n"
         "{history}\n\n"
         "Question: {question}\nAnswer:"
@@ -852,10 +809,7 @@ def main():
         "top_k": args.top_k,
         "embedder": embedder,
         "llm": llm,
-<<<<<<< HEAD
         "debug": args.debug,
-=======
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
     }
 
     # Setup memory if enabled
@@ -883,7 +837,6 @@ def main():
             continue
 
         # ===== Retrieval phase =====
-<<<<<<< HEAD
         rprint("[cyan]🔍 Searching knowledge base...[/cyan]")
         docs = retriever.invoke(user_input)
         
@@ -934,20 +887,6 @@ def main():
             if web_ctx:
                 context_texts = [f"{web_ctx}\n\n[Source: web search results]"]
                 rprint("[green]✅ Retrieved information from the web[/green]")
-=======
-        docs = retriever.invoke(user_input)
-        if isinstance(docs, list):
-            context_texts = [d.page_content for d in docs]
-        else:
-            context_texts = []
-
-        if not context_texts and state["web_fallback"]:
-            rprint(
-                "[yellow]🔍 No local results – falling back to web search...[/yellow]"
-            )
-            web_ctx = web_fallback(user_input, n_results=CONFIG.get("web_results", 3))
-            context_texts = [web_ctx] if web_ctx else []
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
 
         if not context_texts:
             rprint(
@@ -965,12 +904,9 @@ def main():
                 history = "Previous conversation:\n" + memory_buffer
 
         # ===== LLM phase =====
-<<<<<<< HEAD
         if state.get("debug"):
             rprint("[cyan]⚙️ Generating answer...[/cyan]")
             
-=======
->>>>>>> cba6a2b053580ec3be918d8586dd1470f88c9005
         answer = qa_chain.invoke({"context": context, "question": user_input, "history": history})
         
         # Clean up the answer to remove <think> sections and any other assistant markup

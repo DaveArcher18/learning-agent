@@ -8,6 +8,7 @@
 #   make run            →  chat with the agent (starts Qdrant first)
 #   make stop_qdrant    →  stop & remove the Qdrant container
 #   make clean          →  delete qdrant_data volume (DANGER: wipes vectors)
+#   make clear_db       →  delete all data in the kb collection but keep the collection
 # --------------------------------------------------------------------
 
 PY      = python
@@ -17,7 +18,7 @@ PORT      = 6333
 QDRANT_IMAGE = qdrant/qdrant:latest
 
 # -------- Docker helpers -----------------------------------------------------
-.PHONY: start_qdrant stop_qdrant clean setup_db ingest run run_docker
+.PHONY: start_qdrant stop_qdrant clean setup_db ingest run run_docker clear_db
 
 # Start Qdrant container (or reuse if it exists)
 start_qdrant:
@@ -62,6 +63,27 @@ clean: stop_qdrant
 # -------- DB initialisation ---------------------------------------------------
 setup_db: 
 	@echo "🛠️  Ensuring 'kb' collection exists…"
+	$(PY) setup_qdrant.py
+
+# Clear all vectors from the kb collection but keep the collection structure
+clear_db:
+	@echo "🗑️  Clearing all data from the 'kb' collection..."
+	@echo 'from qdrant_client import QdrantClient\n\
+try:\n\
+    client = QdrantClient(path="./qdrant_data")\n\
+    client.delete_collection("kb")\n\
+    print("Deleted local embedded collection")\n\
+except Exception as e:\n\
+    print(f"Could not clear embedded collection: {e}")\n\
+    try:\n\
+        client = QdrantClient(host="localhost", port=6333)\n\
+        client.delete_collection("kb")\n\
+        print("Deleted Docker-based collection")\n\
+    except Exception as e2:\n\
+        print(f"Could not clear Docker collection: {e2}")\n\
+        print("Could not delete collection. Is Qdrant running?")\n' > clear_db_temp.py
+	$(PY) clear_db_temp.py
+	rm clear_db_temp.py
 	$(PY) setup_qdrant.py
 
 # -------- Ingestion & Agent ---------------------------------------------------
