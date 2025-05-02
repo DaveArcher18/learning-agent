@@ -6,3 +6,5 @@ qdrant_data/*
 
 # Ignore contents of WorkingExample folder
 WorkingExample/*
+
+.env
