@@ -23,7 +23,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/learning-agent.git
+git clone https://github.com/DaveArcher18/learning-agent.git
 cd learning-agent
 
 # Create and activate virtual environment
