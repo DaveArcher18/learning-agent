@@ -2,7 +2,9 @@
 # Edit this file to adjust behavior without changing code
 
 # Model settings
-model: qwen3:4b
+model: qwen3:4b  # For Ollama models like "qwen3:4b"
+model_provider: "ollama"  # Options: "ollama" or "openrouter"
+openrouter_model: "deepseek/deepseek-prover-v2:free"  # Only used when model_provider is "openrouter"
 temperature: 0.3
 
 # Memory

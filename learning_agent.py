@@ -4,6 +4,7 @@ learning_agent.py
 Interactive CLI RAG assistant using:
 
   • Qwen-3 4B via Ollama (32k context)
+  • OpenRouter supported models (optional)
   • FastEmbed + FlagEmbedding (BAAI/bge-small-en)
   • Qdrant (local, embedded) for vector search (Hybrid)
   • Exa Search MCP as web-fallback
@@ -120,6 +121,8 @@ def load_config() -> Dict[str, Any]:
         )
         return {
             "model": "qwen3:4b",
+            "model_provider": "ollama",
+            "openrouter_model": "deepseek/deepseek-prover-v2:free",
             "temperature": 0.3,
             "use_memory": True,
             "embedding_model": "BAAI/bge-small-en-v1.5",
@@ -145,31 +148,119 @@ DEFAULT_TOP_K = CONFIG.get("top_k", 5)
 
 load_dotenv()
 EXA_KEY = os.getenv("EXA_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Actually OpenRouter API key
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1")
+
 if not EXA_KEY and CONFIG.get("use_web_fallback", True):
     rprint("[yellow]⚠️ EXA_API_KEY not set; you can still run with --no-web[/yellow]")
+
+# Print more detailed OpenRouter API key information for debugging
+if CONFIG.get("model_provider") == "openrouter":
+    if not OPENAI_API_KEY:
+        rprint("[red]⚠️ OPENAI_API_KEY not set in .env; needed for OpenRouter models[/red]")
+        rprint("[yellow]💡 Create a .env file with OPENAI_API_KEY=your_openrouter_key[/yellow]")
+        rprint("[yellow]💡 Make sure to run 'source .env' or restart your terminal after creating .env[/yellow]")
+    else:
+        rprint(f"[green]✅ Found OPENAI_API_KEY (length: {len(OPENAI_API_KEY)})[/green]")
 
 
 # --------------------------------------------------------------------------- #
 #                               Helper funcs                                  #
 # --------------------------------------------------------------------------- #
 def get_llm(model=None, temperature=None):
-    """Create an LLM instance."""
+    """Create an LLM instance based on the configured provider."""
+    model_provider = CONFIG.get("model_provider", "ollama")
     model = model or CONFIG.get("model", "qwen3:4b")
     temperature = temperature or CONFIG.get("temperature", 0.3)
     
-    # Try to use OllamaLLM (the new recommended class)
-    try:
-        from langchain_ollama import OllamaLLM
-        return OllamaLLM(model=model, temperature=temperature, timeout=120)
-    except ImportError:
-        # Fall back to Ollama if OllamaLLM isn't available
+    if model_provider == "openrouter":
+        # Use OpenRouter through the OpenAI interface
+        openrouter_model = CONFIG.get("openrouter_model", "deepseek/deepseek-prover-v2:free")
+        
+        if not OPENAI_API_KEY:
+            rprint("[red]❌ Missing OPENAI_API_KEY in .env for OpenRouter[/red]")
+            rprint("[yellow]💡 Add OPENAI_API_KEY=your_openrouter_key to .env[/yellow]")
+            rprint("[yellow]💡 Then either:                                    [/yellow]")
+            rprint("[yellow]   - Run 'source .env' in your terminal            [/yellow]")
+            rprint("[yellow]   - Close and reopen your terminal                [/yellow]")
+            rprint("[yellow]   - Export directly: export OPENAI_API_KEY=value  [/yellow]")
+            raise ValueError("OpenRouter API key not found in environment")
+        
         try:
-            from langchain_ollama import Ollama
-            return Ollama(model=model, temperature=temperature, timeout=120)
+            # Import OpenAI integration from LangChain
+            try:
+                from langchain_openai import ChatOpenAI
+            except ImportError:
+                from langchain_community.chat_models import ChatOpenAI
+            
+            rprint(f"[green]🔄 Using OpenRouter model: {openrouter_model}[/green]")
+            
+            # Get headers from environment variables or use defaults
+            http_referer = os.getenv("HTTP_REFERER", "LearningAgent")
+            x_title = os.getenv("X_TITLE", "LearningAgent")
+            
+            # Test the API key first with a simple validation request
+            try:
+                import openai
+                from openai import OpenAI
+                
+                # Set up a minimal client to test authentication
+                test_client = OpenAI(
+                    api_key=OPENAI_API_KEY,
+                    base_url=OPENAI_API_BASE
+                )
+                
+                # Get models list as a simple authentication test
+                try:
+                    test_client.models.list(limit=1)
+                    rprint("[green]✅ OpenRouter authentication successful[/green]")
+                except Exception as auth_e:
+                    # If models list fails, try a more basic authentication test
+                    test_client.with_options(timeout=5.0).chat.completions.create(
+                        model=openrouter_model,
+                        messages=[{"role": "system", "content": "test"}],
+                        max_tokens=1
+                    )
+                    rprint("[green]✅ OpenRouter authentication successful[/green]")
+            except Exception as test_e:
+                rprint(f"[red]❌ OpenRouter authentication failed: {test_e}[/red]")
+                rprint(f"[yellow]💡 Make sure your API key is correct and properly exported[/yellow]")
+                raise ValueError(f"OpenRouter authentication failed: {test_e}")
+            
+            return ChatOpenAI(
+                model=openrouter_model,
+                temperature=temperature,
+                api_key=OPENAI_API_KEY,
+                base_url=OPENAI_API_BASE,
+                timeout=120,
+                max_retries=3,
+                model_kwargs={
+                    "extra_headers": {
+                        "HTTP-Referer": http_referer,
+                        "X-Title": x_title
+                    }
+                }
+            )
+        except Exception as e:
+            rprint(f"[red]❌ Error initializing OpenRouter: {e}[/red]")
+            rprint("[yellow]💡 Falling back to Ollama...[/yellow]")
+            model_provider = "ollama"  # Fallback to Ollama
+    
+    # Use Ollama (either as primary choice or fallback)
+    if model_provider == "ollama":
+        # Try to use OllamaLLM (the new recommended class)
+        try:
+            from langchain_ollama import OllamaLLM
+            return OllamaLLM(model=model, temperature=temperature, timeout=120)
         except ImportError:
-            # Last resort fallback
-            from langchain_community.llms import Ollama
-            return Ollama(model=model, temperature=temperature, timeout=120)
+            # Fall back to Ollama if OllamaLLM isn't available
+            try:
+                from langchain_ollama import Ollama
+                return Ollama(model=model, temperature=temperature, timeout=120)
+            except ImportError:
+                # Last resort fallback
+                from langchain_community.llms import Ollama
+                return Ollama(model=model, temperature=temperature, timeout=120)
 
 
 def connect_to_qdrant():
@@ -553,11 +644,12 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             "Question: {question}\nAnswer:"
         )
         
-        # Create a dedicated chain for search
-        qa_chain = qa_prompt | state.get("llm")
+        # Create a temporary chain for the search operation
+        # This is separate from the main qa_chain because it uses a different prompt
+        search_chain = qa_prompt | state["llm"]
         
         # Generate answer
-        answer = qa_chain.invoke({"context": context, "question": search_term})
+        answer = search_chain.invoke({"context": context, "question": search_term})
         
         # Format and display
         rprint(Panel.fit(answer, title="Web Search Results", border_style="green"))
@@ -584,8 +676,21 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
         table.add_column("Setting", style="cyan")
         table.add_column("Value", style="green")
 
+        # Add provider-specific information
+        model_provider = CONFIG.get("model_provider", "ollama")
+        table.add_row("model_provider", model_provider)
+        
+        if model_provider == "ollama":
+            table.add_row("model (ollama)", CONFIG.get("model", "qwen3:4b"))
+        elif model_provider == "openrouter":
+            table.add_row("openrouter_model", CONFIG.get("openrouter_model", "deepseek/deepseek-prover-v2:free"))
+            table.add_row("openrouter_api_base", OPENAI_API_BASE)
+        
+        # Add other configuration settings
         for key, value in CONFIG.items():
-            table.add_row(key, str(value))
+            # Skip model settings already displayed
+            if key not in ["model_provider", "model", "openrouter_model"]:
+                table.add_row(key, str(value))
 
         # Add runtime settings
         table.add_row("memory_enabled", str(state.get("memory_enabled", False)))
@@ -610,6 +715,77 @@ def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
             )
         return True
 
+    # Add provider command
+    if cmd == ":provider":
+        if not args:
+            current_provider = CONFIG.get("model_provider", "ollama")
+            rprint(f"[cyan]🔍 Current provider is: {current_provider}[/cyan]")
+            rprint("[cyan]Use ':provider ollama' or ':provider openrouter' to change[/cyan]")
+            if current_provider == "openrouter":
+                rprint(f"[cyan]Current OpenRouter model: {CONFIG.get('openrouter_model', 'deepseek/deepseek-prover-v2:free')}[/cyan]")
+                rprint("[cyan]Use ':provider openrouter MODEL_NAME' to change the OpenRouter model[/cyan]")
+            return True
+            
+        parts = args.split(maxsplit=1)
+        provider = parts[0].lower()
+        
+        if provider not in ["ollama", "openrouter"]:
+            rprint(f"[red]⚠️ Unknown provider: {provider}. Use 'ollama' or 'openrouter'[/red]")
+            return True
+            
+        # If changing to the same provider but with a different model
+        if provider == CONFIG.get("model_provider"):
+            if provider == "openrouter" and len(parts) > 1:
+                model_name = parts[1].strip()
+                CONFIG["openrouter_model"] = model_name
+                rprint(f"[green]✅ Changed OpenRouter model to: {model_name}[/green]")
+                
+                # Recreate the LLM with the new model
+                state["llm"] = get_llm()
+            else:
+                rprint(f"[cyan]ℹ️ Already using {provider} provider[/cyan]")
+            return True
+            
+        # Change provider
+        CONFIG["model_provider"] = provider
+        rprint(f"[green]✅ Changed provider to: {provider}[/green]")
+        
+        # If switching to OpenRouter with a specific model
+        if provider == "openrouter" and len(parts) > 1:
+            model_name = parts[1].strip()
+            CONFIG["openrouter_model"] = model_name
+            rprint(f"[green]✅ Using OpenRouter model: {model_name}[/green]")
+        
+        # Recreate the LLM with the new provider
+        try:
+            state["llm"] = get_llm()
+            
+            # Update the QA chain to use the new LLM
+            qa_prompt = PromptTemplate.from_template(
+                "You are a helpful assistant. Use the following context to answer the question.\n"
+                "If the context doesn't contain relevant information to answer the question, clearly state that no relevant information is available.\n"
+                "If the context has SOME information on the topic but not enough to fully answer, use what's available and acknowledge the limitations.\n"
+                "Always cite sources from the context when using specific information.\n\n"
+                "Context:\n{context}\n\n"
+                "{history}\n\n"
+                "Question: {question}\n\n"
+                "Approach this in steps:\n"
+                "1. Analyze whether the context contains information related to the question\n"
+                "2. Extract relevant details from the context\n"
+                "3. Formulate a clear answer that synthesizes the information and cites sources\n\n"
+                "Answer:"
+            )
+            
+            state["qa_chain"] = qa_prompt | state["llm"]
+            
+        except Exception as e:
+            rprint(f"[red]❌ Error changing provider: {e}[/red]")
+            # Revert to the previous provider
+            CONFIG["model_provider"] = "ollama" if provider == "openrouter" else "openrouter"
+            rprint(f"[yellow]⚠️ Reverted to {CONFIG['model_provider']} provider[/yellow]")
+        
+        return True
+
     # If not a command, treat as normal input
     return True
 
@@ -629,7 +805,43 @@ def main():
     parser.add_argument(
         "--debug", action="store_true", help="Enable debug mode with detailed output"
     )
+    parser.add_argument(
+        "--provider", type=str, choices=["ollama", "openrouter"], 
+        help="Model provider to use (overrides config.yaml)"
+    )
+    parser.add_argument(
+        "--openrouter-model", type=str,
+        help="OpenRouter model to use (overrides config.yaml)"
+    )
     args = parser.parse_args()
+
+    # Override configuration based on command line arguments
+    if args.provider:
+        CONFIG["model_provider"] = args.provider
+        rprint(f"[cyan]🔄 Overriding model provider from command line: {args.provider}[/cyan]")
+    
+    if args.openrouter_model and CONFIG["model_provider"] == "openrouter":
+        CONFIG["openrouter_model"] = args.openrouter_model
+        rprint(f"[cyan]🔄 Overriding OpenRouter model from command line: {args.openrouter_model}[/cyan]")
+    
+    # Display credentials check information for clarity
+    rprint("[cyan]🔐 Checking credentials...[/cyan]")
+    if CONFIG["model_provider"] == "openrouter":
+        if not OPENAI_API_KEY:
+            rprint("[red]❌ OPENAI_API_KEY not found in environment[/red]")
+            rprint("[yellow]💡 Please set this in .env file or export it directly:[/yellow]")
+            rprint("[yellow]  export OPENAI_API_KEY=your_openrouter_key[/yellow]")
+        else:
+            masked_key = OPENAI_API_KEY[:4] + "..." + OPENAI_API_KEY[-4:] if len(OPENAI_API_KEY) > 8 else "***" 
+            rprint(f"[green]✅ OPENAI_API_KEY found: {masked_key}[/green]")
+            rprint(f"[green]✅ Using base URL: {OPENAI_API_BASE}[/green]")
+    
+    if CONFIG.get("use_web_fallback", True) and not args.no_web:
+        if not EXA_KEY:
+            rprint("[yellow]⚠️ EXA_API_KEY not found - web search will be disabled[/yellow]")
+        else:
+            masked_key = EXA_KEY[:4] + "..." + EXA_KEY[-4:] if len(EXA_KEY) > 8 else "***"
+            rprint(f"[green]✅ EXA_API_KEY found: {masked_key}[/green]")
 
     rprint(
         Panel(
@@ -639,6 +851,7 @@ def main():
             "  - [yellow]:search[/yellow] [italic]<topic>[/italic] → run web search on a topic\n"
             "  - [yellow]:search_kb[/yellow] [italic]<term>[/italic] → direct search in knowledge base\n"
             "  - [yellow]:ingest[/yellow] [italic]<path>[/italic] → add documents to knowledge base\n"
+            "  - [yellow]:provider[/yellow] [italic]<ollama|openrouter> [model_name][/italic] → change LLM provider\n"
             "  - [yellow]:memory[/yellow] [italic]on/off[/italic] → toggle conversation memory\n"
             "  - [yellow]:debug[/yellow] [italic]on/off[/italic] → toggle detailed debug info\n"
             "  - [yellow]:config[/yellow] → show current settings\n"
@@ -649,10 +862,22 @@ def main():
     )
 
     # LLM & retriever
-    llm = get_llm()
-    embedder = Embedder(EMBED_MODEL_NAME)
-    vector_store = init_vector_store(embedder)
-    retriever = build_retriever(vector_store, llm, args.top_k)
+    try:
+        llm = get_llm()
+        embedder = Embedder(EMBED_MODEL_NAME)
+        vector_store = init_vector_store(embedder)
+        retriever = build_retriever(vector_store, llm, args.top_k)
+    except ValueError as e:
+        if "OpenRouter authentication failed" in str(e) or "OpenRouter API key not found" in str(e):
+            rprint("[red]❌ OpenRouter authentication failed. Please check your API key.[/red]")
+            rprint("[yellow]💡 Quick fix: try these commands in sequence:[/yellow]")
+            rprint("[yellow]  make export_env[/yellow]")
+            rprint("[yellow]  source ./export_env.sh[/yellow]")
+            rprint("[yellow]  make run_openrouter[/yellow]")
+            rprint("[yellow]💡 More details in README.md troubleshooting section[/yellow]")
+            return
+        else:
+            raise
 
     # Enhanced QA prompt that asks to cite sources
     qa_prompt = PromptTemplate.from_template(
@@ -680,6 +905,7 @@ def main():
         "top_k": args.top_k,
         "embedder": embedder,
         "llm": llm,
+        "qa_chain": qa_chain,  # Store the qa_chain in state
         "debug": args.debug,
     }
 
@@ -819,10 +1045,29 @@ def main():
         if state.get("debug"):
             rprint("[cyan]⚙️ Generating answer...[/cyan]")
             
-        answer = qa_chain.invoke({"context": context, "question": user_input, "history": history})
+        answer = state["qa_chain"].invoke({"context": context, "question": user_input, "history": history})
         
         # Clean up the answer to remove <think> sections and any other assistant markup
         clean_answer = answer
+        
+        # Ensure answer is a string before applying regex
+        if not isinstance(clean_answer, str):
+            # Convert to string if it's not already
+            clean_answer = str(clean_answer)
+        
+        # Extract just the content from OpenRouter response if it's in that format    
+        if "content=" in clean_answer and "additional_kwargs=" in clean_answer:
+            try:
+                # Extract the content part from OpenRouter format
+                content_match = re.search(r"content='(.*?)' additional_kwargs=", clean_answer, re.DOTALL)
+                if content_match:
+                    clean_answer = content_match.group(1)
+                    # Unescape any escaped quotes and handle newlines
+                    clean_answer = clean_answer.replace("\\'", "'").replace("\\n", "\n")
+            except Exception as e:
+                # If parsing fails, continue with the original string
+                rprint(f"[yellow]⚠️ Could not parse OpenRouter response format: {e}[/yellow]")
+            
         # Remove <think>...</think> blocks
         clean_answer = re.sub(r'<think>.*?</think>', '', clean_answer, flags=re.DOTALL)
         # Remove any remaining XML-like tags

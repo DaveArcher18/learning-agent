@@ -6,6 +6,8 @@ langchain-ollama>=0.0.2
 langchain-qdrant>=0.0.1
 langchain-text-splitters>=0.0.1
 langchain-exa>=0.0.3
+langchain-openai>=0.1.0  # For OpenRouter integration
+openai>=1.1.0  # For OpenRouter integration
 
 # Embeddings and vector DB
 fastembed>=0.1.0

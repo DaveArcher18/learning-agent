@@ -7,6 +7,8 @@
 #   make ingest         →  ingest ./docs into Qdrant
 #   make run            →  chat with the agent (starts embedded Qdrant)
 #   make run_docker     →  chat with the agent (Docker Qdrant, preferred)
+#   make run_openrouter →  chat with the agent using OpenRouter models
+#   make export_env     →  prepare environment variables from .env file
 #   make stop_qdrant    →  stop & remove the Qdrant container
 #   make clean          →  delete qdrant_data volume (DANGER: wipes vectors)
 #   make clear_db       →  delete all data in the kb collection but keep the collection
@@ -20,7 +22,7 @@ PORT      = 6333
 QDRANT_IMAGE = qdrant/qdrant:latest
 
 # -------- Docker helpers -----------------------------------------------------
-.PHONY: start_qdrant stop_qdrant clean setup_db ingest run run_docker clear_db audit_db
+.PHONY: start_qdrant stop_qdrant clean setup_db ingest run run_docker clear_db audit_db export_env
 
 # Start Qdrant container (or reuse if it exists)
 start_qdrant:
@@ -101,3 +103,16 @@ run: setup_db
 run_docker: start_qdrant
 	@echo "💬 Starting LearningAgent CLI with Docker Qdrant …"
 	$(PY) learning_agent.py
+
+# Make the export_env script executable
+export_env: export_env.sh
+	@echo "🔐 Making export_env.sh executable..."
+	@chmod +x export_env.sh
+	@echo "✅ Done! You can now run: source ./export_env.sh"
+	@echo "📝 Note: You must use 'source ./export_env.sh', not just './export_env.sh'"
+
+# Use OpenRouter for LLM provider (with Docker Qdrant)
+run_openrouter: start_qdrant export_env
+	@echo "💬 Starting LearningAgent CLI with OpenRouter models..."
+	@echo "🔑 Loading environment variables from .env file..."
+	@bash -c 'source ./export_env.sh && $(PY) learning_agent.py --provider openrouter'
