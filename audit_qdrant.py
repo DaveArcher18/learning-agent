@@ -6,10 +6,29 @@ Audit the Qdrant database for LearningAgent.
 Displays stats and sample data.
 """
 
+import os
+import yaml
+import argparse
 from qdrant_client import QdrantClient
 from rich import print as rprint
 from rich.table import Table
-import argparse
+
+# Load configuration
+CONFIG_PATH = "config.yaml"
+
+def load_config():
+    """Load configuration from YAML file."""
+    if not os.path.exists(CONFIG_PATH):
+        rprint(f"[yellow]⚠️ Config file {CONFIG_PATH} not found, using defaults.[/yellow]")
+        return {
+            "collection": "kb",
+        }
+
+    with open(CONFIG_PATH, "r") as f:
+        return yaml.safe_load(f)
+
+CONFIG = load_config()
+COLLECTION = CONFIG.get("collection", "kb")
 
 def main():
     """Main function."""
@@ -53,11 +72,11 @@ def main():
         collection_names = [collection.name for collection in collections]
         log(f"[bold]Collections: {collection_names}[/bold]")
         
-        if "kb" in collection_names:
-            collection_info = client.get_collection("kb")
+        if COLLECTION in collection_names:
+            collection_info = client.get_collection(COLLECTION)
             vector_count = collection_info.points_count
             vector_size = collection_info.config.params.vectors.size
-            log(f"[bold green]Collection 'kb' contains {vector_count} vectors (size: {vector_size})[/bold green]")
+            log(f"[bold green]Collection '{COLLECTION}' contains {vector_count} vectors (size: {vector_size})[/bold green]")
             
             # Show collection config
             log("[bold cyan]Vector Configuration:[/bold cyan]")
@@ -69,7 +88,7 @@ def main():
                 limit = args.points if args.points is not None else args.count
                 
                 points = client.scroll(
-                    collection_name="kb",
+                    collection_name=COLLECTION,
                     limit=limit,
                     with_payload=True,
                     with_vectors=False
@@ -78,7 +97,7 @@ def main():
                 log(f"\n[bold]Sample entries ({min(limit, len(points))} of {vector_count}):[/bold]")
                 
                 # Create a table for better visualization
-                table = Table(title=f"Sample Documents from 'kb' Collection")
+                table = Table(title=f"Sample Documents from '{COLLECTION}' Collection")
                 table.add_column("ID", style="cyan")
                 table.add_column("Source", style="green")
                 table.add_column("Fields", style="yellow")
@@ -160,7 +179,7 @@ def main():
             else:
                 log("[yellow]⚠️ Collection exists but contains no vectors[/yellow]")
         else:
-            log("[yellow]⚠️ Collection 'kb' not found[/yellow]")
+            log(f"[yellow]⚠️ Collection '{COLLECTION}' not found[/yellow]")
             
         # Export to file if requested
         if args.export:

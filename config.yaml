@@ -14,16 +14,16 @@ use_memory: false
 embedding_model: BAAI/bge-small-en-v1.5
 
 # Retrieval settings
-top_k: 5
+top_k: 8
 similarity_threshold: 0.5
 
 # Chunking settings
-chunk_size: 2000
-chunk_overlap: 200
+chunk_size: 10000
+chunk_overlap: 500
 
 # Web search fallback
-use_web_fallback: true
+use_web_fallback: false
 web_results: 3
 
 # Collection name
-collection: kb
+collection: MoravaKTheory

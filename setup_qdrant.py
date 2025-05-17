@@ -6,16 +6,32 @@ Initialize Qdrant collection for LearningAgent.
 
 This script:
 1. Connects to Qdrant (Docker first, then embedded as fallback)
-2. Creates a collection named 'kb' if it doesn't exist
+2. Creates a collection if it doesn't exist
 """
 
 import os
 import sys
+import yaml
 from qdrant_client import QdrantClient, models
 from rich import print as rprint
 
-# Default collection name and embedding dimension
-COLLECTION = "kb"
+# Load configuration
+CONFIG_PATH = "config.yaml"
+
+def load_config():
+    """Load configuration from YAML file."""
+    if not os.path.exists(CONFIG_PATH):
+        rprint(f"[yellow]⚠️ Config file {CONFIG_PATH} not found, using defaults.[/yellow]")
+        return {
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "collection": "kb",
+        }
+
+    with open(CONFIG_PATH, "r") as f:
+        return yaml.safe_load(f)
+
+CONFIG = load_config()
+COLLECTION = CONFIG.get("collection", "kb")
 VECTOR_SIZE = 384  # BGE-Small-EN dimension
 
 def connect_to_qdrant():
@@ -96,7 +112,7 @@ def main():
         client, mode = connect_to_qdrant()
         ensure_collection(client)
         vector_count = check_collection_status(client)
-        rprint(f"[green]✅ Qdrant setup complete (mode: {mode}, vectors: {vector_count}).[/green]")
+        rprint(f"[green]✅ Qdrant setup complete (mode: {mode}, collection: {COLLECTION}, vectors: {vector_count}).[/green]")
     except Exception as e:
         rprint(f"[red]❌ Setup failed: {e}[/red]")
         sys.exit(1)

@@ -1,1124 +1,758 @@
 """
 learning_agent.py
 -----------------
-Interactive CLI RAG assistant using:
-
-  • Qwen-3 4B via Ollama (32k context)
-  • OpenRouter supported models (optional)
-  • FastEmbed + FlagEmbedding (BAAI/bge-small-en)
-  • Qdrant (local, embedded) for vector search (Hybrid)
-  • Exa Search MCP as web-fallback
-
-Run:
-    python learning_agent.py           # start chat
-    python learning_agent.py --no-web  # disable Exa
+A simplified RAG chat assistant with memory and retrieval capabilities.
+Refactored with a class-based architecture for better maintainability.
 """
 
-import argparse
 import os
 import yaml
 import warnings
-import re
-import numpy as np
+import logging
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Union, Callable
+from abc import ABC, abstractmethod
+from rich import print as rprint
+from rich.panel import Panel
+from rich.console import Console
+from dotenv import load_dotenv
 
-# Suppress LangChain deprecation warnings
+# Suppress unnecessary warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*was deprecated.*")
 warnings.filterwarnings("ignore", message=".*TOKENIZERS_PARALLELISM.*")
 
-from dotenv import load_dotenv
-from rich import print as rprint
-from rich.panel import Panel
-from rich.table import Table
+# LangChain imports
+from langchain_community.chat_models import ChatOllama
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough, RunnableParallel
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from langchain_core.language_models import BaseChatModel
 
-# ---- LangChain core ----
-# Ollama import is handled in get_llm() function now
-
-# Memory imports - try new path first, then fall back to old path
-try:
-    from langchain.memory import ConversationBufferMemory
-except ImportError:
-    try:
-        from langchain_core.memory import ConversationBufferMemory
-    except ImportError:
-        from langchain_community.memory import ConversationBufferMemory
-
-# Prompts imports
-try:
-    from langchain_core.prompts import PromptTemplate
-except ImportError:
-    from langchain_community.prompts import PromptTemplate
-
-# Runnable imports
-try:
-    from langchain_core.runnables import RunnablePassthrough, RunnableParallel
-except ImportError:
-    from langchain_community.schema.runnable import RunnablePassthrough, RunnableParallel
-
-# Chains imports
-try:
-    from langchain.chains import LLMChain
-except ImportError:
-    from langchain_core.chains import LLMChain
-
-# ---- Vector & embeddings ----
-try:
-    # Import fastembed directly - new API
-    import fastembed
-    Embedder = fastembed.TextEmbedding
-except ImportError:
-    try:
-        # Use newer TextEmbedding (recommended)
-        from fastembed import TextEmbedding as Embedder
-    except ImportError:
-        try:
-            # Try legacy FlagEmbedding
-            from fastembed import FlagEmbedding as Embedder
-        except ImportError:
-            # Try the oldest location
-            from fastembed.embedding import FlagEmbedding as Embedder
-
+# Vector store and embeddings
+import fastembed
 from qdrant_client import QdrantClient
-try:
-    from langchain_qdrant import QdrantVectorStore, RetrievalMode
-except ImportError:
-    from langchain_community.vectorstores import QdrantVectorStore
-    RetrievalMode = None  # Might not be available in older versions
+from qdrant_client import models as qmodels
+from langchain_qdrant import QdrantVectorStore
+from langchain_community.embeddings import FastEmbedEmbeddings
 
-# Multi-query retriever
-try:
-    from langchain.retrievers.multi_query import MultiQueryRetriever
-except ImportError:
-    try:
-        from langchain_community.retrievers.multi_query import MultiQueryRetriever
-    except ImportError:
-        from langchain.retrievers import MultiQueryRetriever
-
-# ---- Exa search ----
-from exa_py import Exa  # Exa's official SDK
-
-# ---- Text splitters ----
-try:
-    from langchain_text_splitters import TokenTextSplitter, CharacterTextSplitter
-except ImportError:
-    # Fall back to community package if needed
-    from langchain_community.text_splitters import TokenTextSplitter, CharacterTextSplitter
-
+# Exa search for web fallback
+from exa_py import Exa
 
 # --------------------------------------------------------------------------- #
-#                               Configuration                                 #
+#                            Configuration Manager                            #
 # --------------------------------------------------------------------------- #
-CONFIG_PATH = "config.yaml"
-
-
-def load_config() -> Dict[str, Any]:
-    """Load configuration from YAML file."""
-    if not os.path.exists(CONFIG_PATH):
-        rprint(
-            f"[yellow]⚠️ Config file {CONFIG_PATH} not found, using defaults.[/yellow]"
-        )
-        return {
-            "model": "qwen3:4b",
-            "model_provider": "ollama",
-            "openrouter_model": "deepseek/deepseek-prover-v2:free",
-            "temperature": 0.3,
-            "use_memory": True,
-            "embedding_model": "BAAI/bge-small-en-v1.5",
-            "top_k": 5,
-            "similarity_threshold": 0.5,
-            "chunk_size": 2000,
-            "chunk_overlap": 200,
-            "use_web_fallback": True,
-            "web_results": 3,
-            "collection": "kb",
-        }
-
-    with open(CONFIG_PATH, "r") as f:
-        return yaml.safe_load(f)
-
-
-CONFIG = load_config()
-COLLECTION = CONFIG.get("collection", "kb")
-EMBED_MODEL_NAME = CONFIG.get("embedding_model", "BAAI/bge-small-en-v1.5")
-CHUNK_SIZE = CONFIG.get("chunk_size", 2000)
-CHUNK_OVERLAP = CONFIG.get("chunk_overlap", 200)
-DEFAULT_TOP_K = CONFIG.get("top_k", 5)
-
-load_dotenv()
-EXA_KEY = os.getenv("EXA_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Actually OpenRouter API key
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1")
-
-if not EXA_KEY and CONFIG.get("use_web_fallback", True):
-    rprint("[yellow]⚠️ EXA_API_KEY not set; you can still run with --no-web[/yellow]")
-
-# Print more detailed OpenRouter API key information for debugging
-if CONFIG.get("model_provider") == "openrouter":
-    if not OPENAI_API_KEY:
-        rprint("[red]⚠️ OPENAI_API_KEY not set in .env; needed for OpenRouter models[/red]")
-        rprint("[yellow]💡 Create a .env file with OPENAI_API_KEY=your_openrouter_key[/yellow]")
-        rprint("[yellow]💡 Make sure to run 'source .env' or restart your terminal after creating .env[/yellow]")
-    else:
-        rprint(f"[green]✅ Found OPENAI_API_KEY (length: {len(OPENAI_API_KEY)})[/green]")
-
-
-# --------------------------------------------------------------------------- #
-#                               Helper funcs                                  #
-# --------------------------------------------------------------------------- #
-def get_llm(model=None, temperature=None):
-    """Create an LLM instance based on the configured provider."""
-    model_provider = CONFIG.get("model_provider", "ollama")
-    model = model or CONFIG.get("model", "qwen3:4b")
-    temperature = temperature or CONFIG.get("temperature", 0.3)
+class ConfigManager:
+    """Manages configuration loading and access."""
     
-    if model_provider == "openrouter":
-        # Use OpenRouter through the OpenAI interface
-        openrouter_model = CONFIG.get("openrouter_model", "deepseek/deepseek-prover-v2:free")
-        
-        if not OPENAI_API_KEY:
-            rprint("[red]❌ Missing OPENAI_API_KEY in .env for OpenRouter[/red]")
-            rprint("[yellow]💡 Add OPENAI_API_KEY=your_openrouter_key to .env[/yellow]")
-            rprint("[yellow]💡 Then either:                                    [/yellow]")
-            rprint("[yellow]   - Run 'source .env' in your terminal            [/yellow]")
-            rprint("[yellow]   - Close and reopen your terminal                [/yellow]")
-            rprint("[yellow]   - Export directly: export OPENAI_API_KEY=value  [/yellow]")
-            raise ValueError("OpenRouter API key not found in environment")
-        
-        try:
-            # Import OpenAI integration from LangChain
-            try:
-                from langchain_openai import ChatOpenAI
-            except ImportError:
-                from langchain_community.chat_models import ChatOpenAI
-            
-            rprint(f"[green]🔄 Using OpenRouter model: {openrouter_model}[/green]")
-            
-            # Get headers from environment variables or use defaults
-            http_referer = os.getenv("HTTP_REFERER", "LearningAgent")
-            x_title = os.getenv("X_TITLE", "LearningAgent")
-            
-            # Test the API key first with a simple validation request
-            try:
-                import openai
-                from openai import OpenAI
-                
-                # Set up a minimal client to test authentication
-                test_client = OpenAI(
-                    api_key=OPENAI_API_KEY,
-                    base_url=OPENAI_API_BASE
-                )
-                
-                # Get models list as a simple authentication test
-                try:
-                    test_client.models.list(limit=1)
-                    rprint("[green]✅ OpenRouter authentication successful[/green]")
-                except Exception as auth_e:
-                    # If models list fails, try a more basic authentication test
-                    test_client.with_options(timeout=5.0).chat.completions.create(
-                        model=openrouter_model,
-                        messages=[{"role": "system", "content": "test"}],
-                        max_tokens=1
-                    )
-                    rprint("[green]✅ OpenRouter authentication successful[/green]")
-            except Exception as test_e:
-                rprint(f"[red]❌ OpenRouter authentication failed: {test_e}[/red]")
-                rprint(f"[yellow]💡 Make sure your API key is correct and properly exported[/yellow]")
-                raise ValueError(f"OpenRouter authentication failed: {test_e}")
-            
-            return ChatOpenAI(
-                model=openrouter_model,
-                temperature=temperature,
-                api_key=OPENAI_API_KEY,
-                base_url=OPENAI_API_BASE,
-                timeout=120,
-                max_retries=3,
-                model_kwargs={
-                    "extra_headers": {
-                        "HTTP-Referer": http_referer,
-                        "X-Title": x_title
-                    }
-                }
-            )
-        except Exception as e:
-            rprint(f"[red]❌ Error initializing OpenRouter: {e}[/red]")
-            rprint("[yellow]💡 Falling back to Ollama...[/yellow]")
-            model_provider = "ollama"  # Fallback to Ollama
+    CONFIG_PATH = "config.yaml"
+    DEFAULT_CONFIG = {
+        "model": "qwen3:4b",
+        "model_provider": "ollama",
+        "openrouter_model": "deepseek/deepseek-prover-v2:free",
+        "temperature": 0.3,
+        "use_memory": True,
+        "embedding_model": "BAAI/bge-small-en-v1.5",
+        "top_k": 5,
+        "similarity_threshold": 0.5,
+        "chunk_size": 2000,
+        "chunk_overlap": 200,
+        "use_web_fallback": True,
+        "web_results": 3,
+        "collection": "kb",
+        "prompt_template": "Answer the question based on the following context. \nIf you don't know the answer, just say you don't know; don't make up information.\n\nContext:\n{context}\n\nQuestion: {question}\n"
+    }
     
-    # Use Ollama (either as primary choice or fallback)
-    if model_provider == "ollama":
-        # Try to use OllamaLLM (the new recommended class)
-        try:
-            from langchain_ollama import OllamaLLM
-            return OllamaLLM(model=model, temperature=temperature, timeout=120)
-        except ImportError:
-            # Fall back to Ollama if OllamaLLM isn't available
-            try:
-                from langchain_ollama import Ollama
-                return Ollama(model=model, temperature=temperature, timeout=120)
-            except ImportError:
-                # Last resort fallback
-                from langchain_community.llms import Ollama
-                return Ollama(model=model, temperature=temperature, timeout=120)
+    def __init__(self):
+        self.config = self.load_config()
+    
+    def load_config(self) -> Dict[str, Any]:
+        """Load configuration from YAML file."""
+        if not os.path.exists(self.CONFIG_PATH):
+            rprint(f"[yellow]⚠️ Config file {self.CONFIG_PATH} not found, using defaults.[/yellow]")
+            return self.DEFAULT_CONFIG
 
-
-def connect_to_qdrant():
-    """Connect to Qdrant, prioritizing Docker over embedded."""
-    # Try Docker connection first (preferred for reliability)
-    try:
-        client = QdrantClient(host="localhost", port=6333)
-        # Quick test to make sure it works
-        client.get_collections()
-        rprint("[green]✅ Connected to Docker Qdrant[/green]")
-        return client
-    except Exception as docker_e:
-        rprint(f"[yellow]⚠️ Could not connect to Docker Qdrant: {docker_e}[/yellow]")
-        rprint("[yellow]💡 Try running 'make start_qdrant' to start Qdrant in Docker[/yellow]")
-        
-        # Try embedded Qdrant as fallback
         try:
-            rprint("[cyan]🔄 Trying embedded Qdrant as fallback...[/cyan]")
-            client = QdrantClient(path="./qdrant_data")
-            # Quick test to make sure it works
-            client.get_collections()
-            rprint("[green]✅ Connected to embedded Qdrant[/green]")
-            return client
+            with open(self.CONFIG_PATH, "r") as f:
+                config = yaml.safe_load(f)
+                # Merge with defaults for any missing keys
+                return {**self.DEFAULT_CONFIG, **config}
         except Exception as e:
-            rprint(f"[red]❌ Failed to connect to embedded Qdrant: {e}[/red]")
-            rprint("[yellow]💡 Tips:[/yellow]")
-            rprint("[yellow]  - Run 'make start_qdrant' to start Qdrant Docker[/yellow]")
-            rprint("[yellow]  - Or make sure ./qdrant_data directory exists and is writable[/yellow]")
-            raise RuntimeError("Could not connect to any Qdrant instance")
+            rprint(f"[red]❌ Error loading config: {e}[/red]")
+            return self.DEFAULT_CONFIG
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a configuration value."""
+        return self.config.get(key, default)
+    
+    def update(self, key: str, value: Any) -> None:
+        """Update a configuration value in memory."""
+        self.config[key] = value
 
-
-def init_vector_store(embedder: Embedder):
-    """Initialize vector store with the right Qdrant connection."""
-    client = connect_to_qdrant()
-
-    # Create a proper wrapper for embeddings
-    from langchain_core.embeddings import Embeddings
-
-    class EmbeddingWrapper(Embeddings):
-        """Wrapper for embeddings that works with both old and new APIs."""
-
-        def __init__(self, embedder):
-            self.embedder = embedder
-
-        def embed_documents(self, texts):
-            results = []
-            for text in texts:
-                try:
-                    # Try new API
-                    vector = self.embedder.embed(text)
-                    # Check if it's an iterator
-                    if hasattr(vector, "__next__"):
-                        vector = next(vector)
-                    results.append(vector)
-                except Exception:
-                    # Fall back to old API as a batch
-                    vector = self.embedder.embed([text])[0]
-                    results.append(vector)
-            return results
-
-        def embed_query(self, text):
-            try:
-                # Try new API
-                vector = self.embedder.embed(text)
-                # Check if it's an iterator
-                if hasattr(vector, "__next__"):
-                    vector = next(vector)
-                return vector
-            except Exception:
-                # Fall back to old API
-                return self.embedder.embed([text])[0]
-
-    # Return QdrantVectorStore with the proper parameters
-    return QdrantVectorStore(
-        client=client,
-        collection_name=COLLECTION,
-        embedding=EmbeddingWrapper(embedder),
-    )
-
-
-def build_retriever(vector_store, llm, top_k: int):
-    """Hybrid + MultiQuery expansion with similarity threshold."""
-    similarity_threshold = CONFIG.get("similarity_threshold", 0.5)
-    # Base retriever with similarity threshold filter
-    if hasattr(vector_store, "as_retriever") and hasattr(vector_store.as_retriever, "__call__"):
-        base = vector_store.as_retriever(
-            search_kwargs={
-                "k": top_k,
-                "score_threshold": similarity_threshold
-            }
-        )
+# --------------------------------------------------------------------------- #
+#                                LLM Factory                                  #
+# --------------------------------------------------------------------------- #
+class LLMFactory:
+    """Factory for creating LLM instances with robust error handling."""
+    
+    @staticmethod
+    def check_ollama_service() -> bool:
+        """Check if Ollama service is running and available."""
+        import socket
         
-        # Add debug wrapper to the base retriever if needed
-        class DebugRetriever:
-            """Wrapper to debug retriever calls"""
-            def __init__(self, retriever):
-                self.retriever = retriever
-                
-            def invoke(self, query):
-                rprint(f"[cyan]🔍 Base retriever search: {query}[/cyan]")
-                docs = self.retriever.invoke(query)
-                rprint(f"[cyan]📝 Retrieved {len(docs)} documents[/cyan]")
-                return docs
+        # Check if Ollama is running on default port 11434
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)  # Short timeout for quick check
+        result = sock.connect_ex(('localhost', 11434))
+        sock.close()
         
-        # Use MultiQueryRetriever for better recall
-        try:
-            # Create the multi-query retriever with callbacks for debugging
-            from langchain.callbacks.manager import CallbackManager
-            from langchain.callbacks import StdOutCallbackHandler
-            
-            # Only use verbose callbacks in debug mode
-            if CONFIG.get("debug", False):
-                callbacks = [StdOutCallbackHandler()]
-                cb_manager = CallbackManager(callbacks)
-                retriever = MultiQueryRetriever.from_llm(
-                    retriever=base,
-                    llm=llm,
-                    callbacks=cb_manager
-                )
-                rprint("[green]✅ Using MultiQueryRetriever with debug output[/green]")
-            else:
-                retriever = MultiQueryRetriever.from_llm(
-                    retriever=base, 
-                    llm=llm
-                )
-                rprint("[green]✅ Using MultiQueryRetriever[/green]")
-            
-            return retriever
-            
-        except Exception as e:
-            rprint(f"[yellow]⚠️ MultiQueryRetriever error: {e}. Falling back to base retriever.[/yellow]")
-            return base
-    else:
-        # Fallback for older versions
-        rprint("[yellow]⚠️ Using basic retriever (similarity threshold not supported)[/yellow]")
-        return vector_store.as_retriever(search_kwargs={"k": top_k})
-
-
-def embed_with_fallback(embedder, text):
-    """Try to embed text with fallback to handle API changes."""
-    try:
-        # Try new API (v0.6.x+)
-        if hasattr(embedder, "embed_documents"):
-            # fastembed 0.6.x+ API style
-            vectors = embedder.embed_documents([text])
-            return vectors[0]
-        # Try new API (v0.3.x - v0.5.x)
-        vector = embedder.embed(text)
-        # Check if it's an iterator or generator
-        if hasattr(vector, "__iter__") and not isinstance(vector, (list, np.ndarray)):
-            vector = next(vector)
-        return vector
-    except Exception as e:
-        try:
-            # Fall back to old API as a batch
-            vector = embedder.embed([text])[0]
-            return vector
-        except Exception as e2:
-            raise ValueError(f"Failed to embed text: {str(e)} | {str(e2)}")
-
-
-def web_fallback(query: str, n_results: int = 3) -> str:
-    """Call Exa MCP to fetch web content."""
-    if not EXA_KEY:
-        rprint(
-            "[yellow]⚠️ No Exa API key found. Set EXA_API_KEY env variable for web search.[/yellow]"
-        )
-        return ""
-
-    try:
-        exa = Exa(api_key=EXA_KEY)
-        results = exa.search_and_contents(
-            query,
-            num_results=n_results,
-            use_autoprompt=True,
-            text=True,
-        )
-
-        # Store web results in vector DB for future reference
-        web_texts = []
-        # Handle different response formats in different exa-py versions
-        if isinstance(results, list) and len(results) > 0:
-            # Handle list format (newer versions)
-            for res in results[:n_results]:
-                if 'content' in res:
-                    web_texts.append(res['content'])
-                elif 'text' in res:
-                    web_texts.append(res['text'])
-        elif hasattr(results, 'results') and hasattr(results.results, '__iter__'):
-            # Handle object format (older versions)
-            for res in results.results[:n_results]:
-                if hasattr(res, 'content'):
-                    web_texts.append(res.content)
-                elif hasattr(res, 'text'):
-                    web_texts.append(res.text)
-                
-        if web_texts:
+        return result == 0  # True if port is open
+    
+    @staticmethod
+    def create_llm(config: ConfigManager) -> BaseChatModel:
+        """Create an LLM instance based on the configured provider with fallback handling."""
+        model_provider = config.get("model_provider", "ollama")
+        model = config.get("model", "qwen3:4b")
+        temperature = config.get("temperature", 0.3)
+        
+        # Try OpenRouter if configured
+        if model_provider == "openrouter":
             try:
-                from langchain_core.documents import Document
-                # Use the text splitter already imported
-                splitter = TokenTextSplitter(
-                    chunk_size=CHUNK_SIZE,
-                    chunk_overlap=CHUNK_OVERLAP,
-                    model_name="gpt-3.5-turbo",
-                )
-                # Process web results like other documents
-                docs = [
-                    Document(page_content=text, metadata={"source": "web"})
-                    for text in web_texts
-                ]
-
-                # Split into chunks
-                chunks = splitter.split_documents(docs)
-
-                # Get embedder and client
-                embedder = Embedder(EMBED_MODEL_NAME)
-                client = connect_to_qdrant()
-
-                # Create batch of embeddings and payloads
-                batch_vectors = []
-                payloads = []
-                for doc in chunks:
-                    batch_vectors.append(
-                        embed_with_fallback(embedder, doc.page_content)
-                    )
-                    # Include page_content in the payload to match ingest.py
-                    payloads.append({
-                        "source": "web", 
-                        "query": query,
-                        "page_content": doc.page_content
-                    })
-
-                # Use a timestamp-based ID to avoid collisions
-                import time
-
-                start_id = int(time.time() * 1000)
-
-                # Upsert to Qdrant
-                from qdrant_client import models as qmodels
-
-                client.upsert(
-                    collection_name=COLLECTION,
-                    points=[
-                        qmodels.PointStruct(
-                            id=start_id + i, vector=v, payload=payloads[i]
-                        )
-                        for i, v in enumerate(batch_vectors)
-                    ],
-                )
-                rprint(
-                    f"[green]✅ Stored {len(batch_vectors)} web result chunks in vector DB[/green]"
+                # Use OpenRouter through the OpenAI interface
+                openrouter_model = config.get("openrouter_model", "deepseek/deepseek-prover-v2:free")
+                
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    rprint("[red]❌ Missing OPENAI_API_KEY in .env for OpenRouter[/red]")
+                    rprint("[yellow]💡 Add OPENAI_API_KEY=your_openrouter_key to .env[/yellow]")
+                    raise ValueError("OpenRouter API key not found in environment")
+                
+                rprint(f"[green]🔄 Using OpenRouter model: {openrouter_model}[/green]")
+                
+                return ChatOpenAI(
+                    model=openrouter_model,
+                    temperature=temperature,
+                    api_key=api_key,
+                    base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1")
                 )
             except Exception as e:
-                rprint(f"[yellow]⚠️ Could not store web results: {e}[/yellow]")
+                rprint(f"[red]❌ Failed to initialize OpenRouter: {e}[/red]")
+                # If OpenRouter fails and Ollama is available, try Ollama as fallback
+                if LLMFactory.check_ollama_service():
+                    rprint("[yellow]💡 Falling back to Ollama...[/yellow]")
+                    try:
+                        return ChatOllama(model=model, temperature=temperature)
+                    except Exception as ollama_e:
+                        rprint(f"[red]❌ Ollama fallback also failed: {ollama_e}[/red]")
+                # If both fail, re-raise the original error
+                raise
+        
+        # Default to Ollama with better error handling
+        if not LLMFactory.check_ollama_service():
+            rprint("[yellow]⚠️ Ollama service not detected on port 11434[/yellow]")
+            rprint("[yellow]💡 To start Ollama, open a new terminal and run: ollama serve[/yellow]")
+            
+            # Check if OpenRouter is configured as fallback
+            if os.getenv("OPENAI_API_KEY"):
+                rprint("[yellow]💡 Trying OpenRouter as fallback...[/yellow]")
+                try:
+                    openrouter_model = config.get("openrouter_model", "deepseek/deepseek-prover-v2:free")
+                    return ChatOpenAI(
+                        model=openrouter_model,
+                        temperature=temperature,
+                        api_key=os.getenv("OPENAI_API_KEY"),
+                        base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1")
+                    )
+                except Exception as or_e:
+                    rprint(f"[red]❌ OpenRouter fallback failed: {or_e}[/red]")
+            
+            # If we get here, we'll try Ollama anyway, but it will likely fail
+            rprint("[yellow]⚠️ Attempting to connect to Ollama anyway...[/yellow]")
+        
+        try:
+            rprint(f"[green]🔄 Using Ollama model: {model}[/green]")
+            return ChatOllama(model=model, temperature=temperature)
+        except Exception as e:
+            rprint(f"[red]❌ Failed to initialize Ollama: {e}[/red]")
+            
+            # Try OpenRouter as fallback if API key exists
+            if os.getenv("OPENAI_API_KEY"):
+                rprint("[yellow]💡 Trying OpenRouter as fallback...[/yellow]")
+                try:
+                    openrouter_model = config.get("openrouter_model", "deepseek/deepseek-prover-v2:free")
+                    return ChatOpenAI(
+                        model=openrouter_model,
+                        temperature=temperature,
+                        api_key=os.getenv("OPENAI_API_KEY"),
+                        base_url=os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1")
+                    )
+                except Exception:
+                    pass  # Both failed, will raise original error
+            
+            # If we get here, both providers failed
+            raise ValueError(f"Failed to initialize any LLM provider: {str(e)}")
 
-        return "\n\n".join(web_texts)
-    except Exception as e:
-        rprint(f"[red]❌ Error during web search: {e}[/red]")
-        return ""
+# We're now using LangChain's built-in FastEmbedEmbeddings class instead of a custom implementation
 
+# --------------------------------------------------------------------------- #
+#                              Vector Database                                #
+# --------------------------------------------------------------------------- #
+class VectorDatabase:
+    """Manages connections and operations with the vector database."""
+    
+    def __init__(self, config: ConfigManager):
+        self.config = config
+        self.collection_name = config.get("collection", "kb")
+        self.embedding_model_name = config.get("embedding_model", "BAAI/bge-small-en-v1.5")
+        # Use LangChain's built-in FastEmbedEmbeddings
+        self.embeddings = FastEmbedEmbeddings(model_name=self.embedding_model_name)
+        self.client = self._connect_to_qdrant()
+        self.vector_store = self._initialize_vector_store()
+    
+    def _connect_to_qdrant(self) -> QdrantClient:
+        """Connect to Qdrant, prioritizing Docker over embedded."""
+        # Try Docker connection first
+        try:
+            client = QdrantClient(host="localhost", port=6333)
+            # Test the connection
+            client.get_collections()
+            rprint("[green]✅ Connected to Docker Qdrant[/green]")
+            return client
+        except Exception as docker_e:
+            rprint(f"[yellow]⚠️ Could not connect to Docker Qdrant: {docker_e}[/yellow]")
+            
+            # Try embedded Qdrant as fallback
+            try:
+                rprint("[cyan]🔄 Trying embedded Qdrant as fallback...[/cyan]")
+                client = QdrantClient(path="./qdrant_data")
+                client.get_collections()
+                rprint("[green]✅ Connected to embedded Qdrant[/green]")
+                return client
+            except Exception as e:
+                rprint(f"[red]❌ Failed to connect to embedded Qdrant: {e}[/red]")
+                rprint("[yellow]💡 Try running 'make start_qdrant' to start Qdrant Docker[/yellow]")
+                raise RuntimeError("Could not connect to any Qdrant instance")
+    
+    def _initialize_vector_store(self) -> Optional[QdrantVectorStore]:
+        """Initialize the vector store for retrieval."""
+        try:
+            # Check if collection exists
+            collections = [c.name for c in self.client.get_collections().collections]
+            if self.collection_name not in collections:
+                rprint(f"[yellow]⚠️ Collection '{self.collection_name}' not found. Creating empty collection.[/yellow]")
+                # Create an empty collection
+                vector_size = len(self.embeddings.embed_query("test"))
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=qmodels.VectorParams(
+                        size=vector_size,
+                        distance=qmodels.Distance.COSINE
+                    )
+                )
+            
+            return QdrantVectorStore(
+                client=self.client, 
+                collection_name=self.collection_name,
+                embedding=self.embeddings
+            )
+        except Exception as e:
+            rprint(f"[red]❌ Failed to initialize vector store: {e}[/red]")
+            return None
+    
+    def has_documents(self) -> bool:
+        """Check if the collection has any documents."""
+        try:
+            collection_info = self.client.get_collection(self.collection_name)
+            return collection_info.points_count > 0
+        except Exception:
+            return False
 
-def process_command(cmd: str, args: str, state: Dict[str, Any]) -> bool:
-    """Process CLI commands. Returns True if normal input, False to exit."""
-    if cmd == ":exit":
+# --------------------------------------------------------------------------- #
+#                              Retrieval Service                              #
+# --------------------------------------------------------------------------- #
+class RetrievalService:
+    """Service for retrieving relevant documents with robust error handling."""
+    
+    def __init__(self, vector_db: VectorDatabase, llm: BaseChatModel, config: ConfigManager):
+        self.vector_db = vector_db
+        self.llm = llm
+        self.config = config
+        self.top_k = config.get("top_k", 5)
+        self.similarity_threshold = config.get("similarity_threshold", 0.5)
+        self.retrieval_chain = self._create_retrieval_chain() if vector_db.vector_store else None
+        # Track service health
+        self.vector_store_healthy = True if vector_db.vector_store else False
+    
+    def _create_retrieval_chain(self):
+        """Create a retrieval chain for answering questions with context."""
+        try:
+            # Create a retriever with error handling
+            retriever = self.vector_db.vector_store.as_retriever(
+                search_kwargs={"k": self.top_k, "score_threshold": self.similarity_threshold}
+            )
+            
+            # Define the prompt template with context
+            template = self.config.get("prompt_template")
+            prompt = ChatPromptTemplate.from_template(template)
+            
+            # Create a retrieval chain
+            retrieval_chain = (
+                {"context": retriever | self._format_docs, "question": RunnablePassthrough()}
+                | prompt
+                | self.llm
+                | StrOutputParser()
+            )
+            
+            return retrieval_chain
+        except Exception as e:
+            rprint(f"[red]❌ Failed to create retrieval chain: {e}[/red]")
+            self.vector_store_healthy = False
+            return None
+    
+    def _format_docs(self, docs):
+        """Format retrieved documents into a context string."""
+        if not docs:
+            return "No relevant documents found in the knowledge base."
+            
+        context_parts = []
+        for i, doc in enumerate(docs, 1):
+            source = doc.metadata.get("source", "unknown")
+            context_parts.append(f"[Document {i}] {doc.page_content}\nSource: {source}")
+        
+        return "\n\n".join(context_parts)
+    
+    def retrieve_and_answer(self, query: str, messages: List[BaseMessage]) -> str:
+        """Retrieve relevant documents and answer the query with fallback mechanisms."""
+        # Check if vector store is healthy and has documents
+        has_docs = False
+        try:
+            has_docs = self.vector_db.has_documents() if self.vector_store_healthy else False
+        except Exception as e:
+            rprint(f"[yellow]⚠️ Error checking for documents: {e}[/yellow]")
+            self.vector_store_healthy = False
+            has_docs = False
+        
+        # First try: Use retrieval chain if available and healthy
+        if self.retrieval_chain and has_docs and self.vector_store_healthy:
+            try:
+                rprint("[cyan]🔍 Using RAG to answer query...[/cyan]")
+                return self.retrieval_chain.invoke(query)
+            except Exception as e:
+                # Check if it's a connection error
+                if "Connection refused" in str(e) or "Max retries exceeded" in str(e):
+                    rprint(f"[yellow]⚠️ Vector store connection error: {e}[/yellow]")
+                    self.vector_store_healthy = False
+                else:
+                    rprint(f"[yellow]⚠️ Retrieval error: {e}[/yellow]")
+                # Continue to fallback
+        
+        # Second try: Fall back to direct LLM response
+        try:
+            rprint("[cyan]🔍 Using direct LLM response...[/cyan]")
+            return self.llm.invoke(messages).content
+        except Exception as e:
+            rprint(f"[red]❌ LLM response error: {e}[/red]")
+            # Let the caller handle this error
+            raise e
+
+# --------------------------------------------------------------------------- #
+#                                Web Search                                   #
+# --------------------------------------------------------------------------- #
+class WebSearchService:
+    """Service for web search fallback."""
+    
+    def __init__(self, config: ConfigManager):
+        self.config = config
+        self.api_key = os.getenv("EXA_API_KEY")
+        self.enabled = config.get("use_web_fallback", True) and self.api_key is not None
+        self.n_results = config.get("web_results", 3)
+    
+    def search(self, query: str) -> str:
+        """Search the web for information."""
+        if not self.enabled:
+            return "Web search is not configured. Add EXA_API_KEY to your .env file."
+        
+        try:
+            exa_client = Exa(api_key=self.api_key)
+            results = exa_client.search(query, num_results=self.n_results, use_autoprompt=True)
+            
+            content = []
+            for i, result in enumerate(results.results, 1):
+                title = result.title
+                url = result.url
+                content_snippet = result.text
+                content.append(f"[{i}] {title}\n{url}\n{content_snippet}\n")
+            
+            return "\n\n".join(content)
+        except Exception as e:
+            return f"Error during web search: {str(e)}"
+
+# --------------------------------------------------------------------------- #
+#                               Memory Service                                #
+# --------------------------------------------------------------------------- #
+class ChatMemory:
+    """Manages conversation history."""
+    
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+        self.messages: List[BaseMessage] = []
+    
+    def add_message(self, message: BaseMessage) -> None:
+        """Add a message to the history if memory is enabled."""
+        if self.enabled:
+            self.messages.append(message)
+    
+    def get_messages(self) -> List[BaseMessage]:
+        """Get all messages in the history."""
+        return self.messages if self.enabled else []
+    
+    def clear(self) -> None:
+        """Clear the message history."""
+        self.messages = []
+    
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable memory."""
+        self.enabled = enabled
+
+# --------------------------------------------------------------------------- #
+#                               Command Pattern                               #
+# --------------------------------------------------------------------------- #
+class Command(ABC):
+    """Base command interface."""
+    
+    @abstractmethod
+    def execute(self, args: str, agent: 'LearningAgent') -> bool:
+        """Execute the command."""
+        pass
+
+class ExitCommand(Command):
+    """Command to exit the application."""
+    
+    def execute(self, args: str, agent: 'LearningAgent') -> bool:
         return False
 
-    if cmd == ":ingest":
-        if not args:
-            rprint("[red]⚠️ Path required: :ingest PATH[/red]")
-            return True
-
-        path = args.strip()
-        rprint(f"[cyan]📚 Ingesting documents from {path}...[/cyan]")
-        # Import here to avoid circular imports
-        from ingest import load_files, split_documents
-
-        try:
-            raw_docs = load_files(Path(path))
-            chunks = split_documents(raw_docs)
-            embedder = state.get("embedder")
-
-            # Create batch of embeddings and payloads
-            batch_vectors = []
-            payloads = []
-            for doc in chunks:
-                batch_vectors.append(embed_with_fallback(embedder, doc.page_content))
-                payloads.append({"source": doc.metadata.get("source", "local")})
-
-            # Use the same client that's already connected in the main application
-            # instead of creating a new one
-            client = connect_to_qdrant()
-            from qdrant_client import models as qmodels
-
-            client.upsert(
-                collection_name=COLLECTION,
-                points=[
-                    qmodels.PointStruct(id=i + 10000, vector=v, payload=payloads[i])
-                    for i, v in enumerate(batch_vectors)
-                ],
-            )
-            rprint(f"[green]✅ Added {len(batch_vectors)} chunks from {path}[/green]")
-        except Exception as e:
-            rprint(f"[red]❌ Error ingesting documents: {e}[/red]")
-            # Provide a hint about Docker if embedded Qdrant fails
-            if "already accessed by another instance" in str(e):
-                rprint("[yellow]💡 Try using Docker-based Qdrant instead:[/yellow]")
-                rprint("[yellow]   1. Stop this chat (Ctrl+C)[/yellow]")
-                rprint("[yellow]   2. Run 'make start_qdrant' if not already running[/yellow]")
-                rprint("[yellow]   3. Use 'python ingest.py --path {path}' directly[/yellow]")
-        return True
-
-    if cmd == ":search_kb":
-        if not args:
-            rprint("[red]⚠️ Search term required: :search_kb TERM[/red]")
-            return True
-            
-        search_term = args.strip()
-        rprint(f"[cyan]🔍 Direct knowledge base search for: {search_term}[/cyan]")
-        
-        # Debug output
-        if state.get("debug"):
-            rprint("[cyan]⚙️ Debug mode enabled for KB search[/cyan]")
-            
-        try:
-            # Use direct embedding for search
-            embedder = state.get("embedder")
-            query_vec = embed_with_fallback(embedder, search_term)
-            client = connect_to_qdrant()
-            
-            limit = CONFIG.get("top_k", 5)
-            results = client.search(
-                collection_name=COLLECTION,
-                query_vector=query_vec,
-                limit=limit,
-                with_payload=True,
-            )
-            
-            if not results:
-                rprint("[yellow]⚠️ No results found[/yellow]")
-                return True
-                
-            for i, res in enumerate(results):
-                score = res.score
-                source = res.payload.get("source", "unknown")
-                
-                # In debug mode, show all metadata
-                if state.get("debug"):
-                    rprint(f"[bold cyan]Result {i+1} (score: {score:.4f}):[/bold cyan]")
-                    for k, v in res.payload.items():
-                        rprint(f"  [green]{k}:[/green] {v}")
-                else:
-                    rprint(f"[green]Result {i+1}:[/green] {source} (score: {score:.4f})")
-                    
-            rprint(f"[green]✅ Found {len(results)} results[/green]")
-        except Exception as e:
-            import traceback
-            rprint(f"[red]❌ Error searching knowledge base: {e}[/red]")
-            if state.get("debug"):
-                rprint(traceback.format_exc())
-        
-        return True
-            
-    if cmd == ":search":
-        if not args:
-            rprint("[red]⚠️ Search term required: :search TERM[/red]")
-            return True
-
-        search_term = args.strip()
-        rprint(f"[cyan]🔍 Web search for: {search_term}[/cyan]")
-        context = web_fallback(search_term, n_results=5)
-        
-        if not context:
-            rprint("[red]❌ No web search results found.[/red]")
-            return True
-            
-        # Do a QA with the search results
-        qa_prompt = PromptTemplate.from_template(
-            "You are a helpful assistant. Use the following web search results to answer the question.\n"
-            "Clearly cite sources from the results.\n\n"
-            "Web search results:\n{context}\n\n"
-            "Question: {question}\nAnswer:"
-        )
-        
-        # Create a temporary chain for the search operation
-        # This is separate from the main qa_chain because it uses a different prompt
-        search_chain = qa_prompt | state["llm"]
-        
-        # Generate answer
-        answer = search_chain.invoke({"context": context, "question": search_term})
-        
-        # Format and display
-        rprint(Panel.fit(answer, title="Web Search Results", border_style="green"))
-        return True
-
-    if cmd == ":debug":
-        if args.lower() in ("on", "true", "1"):
-            state["debug"] = True
-            rprint("[bold green]🔍 Debug mode ON - Detailed information will be shown[/bold green]")
-            # Set debug in CONFIG too for other components
-            CONFIG["debug"] = True
-        elif args.lower() in ("off", "false", "0"):
-            state["debug"] = False
-            rprint("[bold yellow]🔍 Debug mode OFF[/bold yellow]")
-            CONFIG["debug"] = False
+class MemoryCommand(Command):
+    """Command to manage memory settings."""
+    
+    def execute(self, args: str, agent: 'LearningAgent') -> bool:
+        if args.lower() in ["on", "true", "yes", "1"]:
+            agent.memory.set_enabled(True)
+            rprint("[green]✅ Memory turned ON[/green]")
+        elif args.lower() in ["off", "false", "no", "0"]:
+            agent.memory.set_enabled(False)
+            rprint("[green]✅ Memory turned OFF[/green]")
         else:
-            current = state.get("debug", False)
-            rprint(f"[cyan]🔍 Debug mode is currently {'ON' if current else 'OFF'}[/cyan]")
-            rprint("[cyan]Use ':debug on' or ':debug off' to change[/cyan]")
+            rprint(f"[yellow]Memory is currently: {'ON' if agent.memory.enabled else 'OFF'}[/yellow]")
         return True
 
-    if cmd == ":config":
-        table = Table(title="Current Configuration")
-        table.add_column("Setting", style="cyan")
-        table.add_column("Value", style="green")
-
-        # Add provider-specific information
-        model_provider = CONFIG.get("model_provider", "ollama")
-        table.add_row("model_provider", model_provider)
-        
-        if model_provider == "ollama":
-            table.add_row("model (ollama)", CONFIG.get("model", "qwen3:4b"))
-        elif model_provider == "openrouter":
-            table.add_row("openrouter_model", CONFIG.get("openrouter_model", "deepseek/deepseek-prover-v2:free"))
-            table.add_row("openrouter_api_base", OPENAI_API_BASE)
-        
-        # Add other configuration settings
-        for key, value in CONFIG.items():
-            # Skip model settings already displayed
-            if key not in ["model_provider", "model", "openrouter_model"]:
-                table.add_row(key, str(value))
-
-        # Add runtime settings
-        table.add_row("memory_enabled", str(state.get("memory_enabled", False)))
-        table.add_row("web_fallback_enabled", str(state.get("web_fallback", False)))
-        table.add_row("debug_mode", str(state.get("debug", False)))
-
-        rprint(table)
-        return True
-
-    if cmd == ":memory":
-        if args.lower() in ("off", "false", "0"):
-            state["memory_enabled"] = False
-            state["memory"] = None
-            rprint("[cyan]🧠 Memory disabled[/cyan]")
-        elif args.lower() in ("on", "true", "1"):
-            state["memory_enabled"] = True
-            state["memory"] = ConversationBufferMemory(return_messages=True)
-            rprint("[cyan]🧠 Memory enabled[/cyan]")
-        else:
-            rprint(
-                f"[cyan]🧠 Memory is currently {'enabled' if state.get('memory_enabled') else 'disabled'}[/cyan]"
-            )
-        return True
-
-    # Add provider command
-    if cmd == ":provider":
+class SearchCommand(Command):
+    """Command to search the web."""
+    
+    def execute(self, args: str, agent: 'LearningAgent') -> bool:
         if not args:
-            current_provider = CONFIG.get("model_provider", "ollama")
-            rprint(f"[cyan]🔍 Current provider is: {current_provider}[/cyan]")
-            rprint("[cyan]Use ':provider ollama' or ':provider openrouter' to change[/cyan]")
-            if current_provider == "openrouter":
-                rprint(f"[cyan]Current OpenRouter model: {CONFIG.get('openrouter_model', 'deepseek/deepseek-prover-v2:free')}[/cyan]")
-                rprint("[cyan]Use ':provider openrouter MODEL_NAME' to change the OpenRouter model[/cyan]")
+            rprint("[yellow]⚠️ Please provide a search query[/yellow]")
             return True
-            
-        parts = args.split(maxsplit=1)
+        
+        rprint(f"[cyan]🔍 Web search for: {args}[/cyan]")
+        results = agent.web_search.search(args)
+        
+        rprint(Panel(results, title="Web Search Results", expand=False))
+        return True
+
+class ProviderCommand(Command):
+    """Command to switch LLM provider."""
+    
+    def execute(self, args: str, agent: 'LearningAgent') -> bool:
+        parts = args.split()
+        if not parts:
+            rprint(f"[cyan]Current provider: {agent.config.get('model_provider')}, "
+                   f"model: {agent.config.get('model')}[/cyan]")
+            return True
+        
         provider = parts[0].lower()
-        
         if provider not in ["ollama", "openrouter"]:
-            rprint(f"[red]⚠️ Unknown provider: {provider}. Use 'ollama' or 'openrouter'[/red]")
+            rprint("[yellow]⚠️ Invalid provider. Use 'ollama' or 'openrouter'[/yellow]")
             return True
-            
-        # If changing to the same provider but with a different model
-        if provider == CONFIG.get("model_provider"):
-            if provider == "openrouter" and len(parts) > 1:
-                model_name = parts[1].strip()
-                CONFIG["openrouter_model"] = model_name
-                rprint(f"[green]✅ Changed OpenRouter model to: {model_name}[/green]")
-                
-                # Recreate the LLM with the new model
-                state["llm"] = get_llm()
-            else:
-                rprint(f"[cyan]ℹ️ Already using {provider} provider[/cyan]")
-            return True
-            
-        # Change provider
-        CONFIG["model_provider"] = provider
-        rprint(f"[green]✅ Changed provider to: {provider}[/green]")
         
-        # If switching to OpenRouter with a specific model
-        if provider == "openrouter" and len(parts) > 1:
-            model_name = parts[1].strip()
-            CONFIG["openrouter_model"] = model_name
-            rprint(f"[green]✅ Using OpenRouter model: {model_name}[/green]")
+        agent.config.update("model_provider", provider)
         
-        # Recreate the LLM with the new provider
+        if len(parts) > 1:
+            agent.config.update("model", parts[1])
+        
+        # Update the LLM
         try:
-            state["llm"] = get_llm()
-            
-            # Update the QA chain to use the new LLM
-            qa_prompt = PromptTemplate.from_template(
-                "You are a helpful assistant. Use the following context to answer the question.\n"
-                "If the context doesn't contain relevant information to answer the question, clearly state that no relevant information is available.\n"
-                "If the context has SOME information on the topic but not enough to fully answer, use what's available and acknowledge the limitations.\n"
-                "Always cite sources from the context when using specific information.\n\n"
-                "Context:\n{context}\n\n"
-                "{history}\n\n"
-                "Question: {question}\n\n"
-                "Approach this in steps:\n"
-                "1. Analyze whether the context contains information related to the question\n"
-                "2. Extract relevant details from the context\n"
-                "3. Formulate a clear answer that synthesizes the information and cites sources\n\n"
-                "Answer:"
-            )
-            
-            state["qa_chain"] = qa_prompt | state["llm"]
-            
+            agent.llm = LLMFactory.create_llm(agent.config)
+            # Recreate retrieval service with new LLM
+            agent.retrieval = RetrievalService(agent.vector_db, agent.llm, agent.config)
+            rprint(f"[green]✅ Switched to {provider} with model: {agent.config.get('model')}[/green]")
         except Exception as e:
-            rprint(f"[red]❌ Error changing provider: {e}[/red]")
-            # Revert to the previous provider
-            CONFIG["model_provider"] = "ollama" if provider == "openrouter" else "openrouter"
-            rprint(f"[yellow]⚠️ Reverted to {CONFIG['model_provider']} provider[/yellow]")
+            rprint(f"[red]❌ Failed to switch provider: {e}[/red]")
         
         return True
 
-    # If not a command, treat as normal input
-    return True
+class ConfigCommand(Command):
+    """Command to show current configuration."""
+    
+    def execute(self, args: str, agent: 'LearningAgent') -> bool:
+        rprint("\n[bold]Current Configuration:[/bold]")
+        for key, value in agent.config.config.items():
+            # Skip complex objects and templates
+            if key != "prompt_template":
+                rprint(f"  {key}: {value}")
+        return True
 
+class HelpCommand(Command):
+    """Command to show help information."""
+    
+    def execute(self, args: str, agent: 'LearningAgent') -> bool:
+        rprint("""
+Available commands:
+  :exit, :quit       - Exit the chat
+  :memory on/off     - Turn memory on or off
+  :search <query>    - Search the web for information
+  :provider <name>   - Switch between 'ollama' and 'openrouter'
+  :config            - Show current configuration
+  :help              - Show this help message
+        """)
+        return True
 
 # --------------------------------------------------------------------------- #
-#                               Main chat loop                                #
+#                              Learning Agent                                 #
 # --------------------------------------------------------------------------- #
-def main():
-    parser = argparse.ArgumentParser(description="LearningAgent CLI")
-    parser.add_argument("--no-web", action="store_true", help="Disable Exa web search")
-    parser.add_argument(
-        "--no-memory", action="store_true", help="Disable conversation memory"
-    )
-    parser.add_argument(
-        "--top-k", type=int, default=DEFAULT_TOP_K, help="Top-k retrieval"
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable debug mode with detailed output"
-    )
-    parser.add_argument(
-        "--provider", type=str, choices=["ollama", "openrouter"], 
-        help="Model provider to use (overrides config.yaml)"
-    )
-    parser.add_argument(
-        "--openrouter-model", type=str,
-        help="OpenRouter model to use (overrides config.yaml)"
-    )
-    args = parser.parse_args()
-
-    # Override configuration based on command line arguments
-    if args.provider:
-        CONFIG["model_provider"] = args.provider
-        rprint(f"[cyan]🔄 Overriding model provider from command line: {args.provider}[/cyan]")
+class LearningAgent:
+    """Main agent class that coordinates all components."""
     
-    if args.openrouter_model and CONFIG["model_provider"] == "openrouter":
-        CONFIG["openrouter_model"] = args.openrouter_model
-        rprint(f"[cyan]🔄 Overriding OpenRouter model from command line: {args.openrouter_model}[/cyan]")
-    
-    # Display credentials check information for clarity
-    rprint("[cyan]🔐 Checking credentials...[/cyan]")
-    if CONFIG["model_provider"] == "openrouter":
-        if not OPENAI_API_KEY:
-            rprint("[red]❌ OPENAI_API_KEY not found in environment[/red]")
-            rprint("[yellow]💡 Please set this in .env file or export it directly:[/yellow]")
-            rprint("[yellow]  export OPENAI_API_KEY=your_openrouter_key[/yellow]")
+    def __init__(self):
+        # Load configuration
+        self.config = ConfigManager()
+        
+        # Initialize components
+        self.memory = ChatMemory(enabled=self.config.get("use_memory", True))
+        
+        # Initialize LLM with better fallback handling
+        self.llm = self._initialize_llm()
+        
+        # Initialize vector database with better error handling
+        self.vector_db = self._initialize_vector_db()
+        
+        # Initialize retrieval service if vector DB is available
+        if self.vector_db:
+            self.retrieval = self._initialize_retrieval_service()
         else:
-            masked_key = OPENAI_API_KEY[:4] + "..." + OPENAI_API_KEY[-4:] if len(OPENAI_API_KEY) > 8 else "***" 
-            rprint(f"[green]✅ OPENAI_API_KEY found: {masked_key}[/green]")
-            rprint(f"[green]✅ Using base URL: {OPENAI_API_BASE}[/green]")
+            self.retrieval = None
+        
+        # Initialize web search
+        self.web_search = WebSearchService(self.config)
     
-    if CONFIG.get("use_web_fallback", True) and not args.no_web:
-        if not EXA_KEY:
-            rprint("[yellow]⚠️ EXA_API_KEY not found - web search will be disabled[/yellow]")
-        else:
-            masked_key = EXA_KEY[:4] + "..." + EXA_KEY[-4:] if len(EXA_KEY) > 8 else "***"
-            rprint(f"[green]✅ EXA_API_KEY found: {masked_key}[/green]")
-
-    rprint(
-        Panel(
-            "🚀 [bold cyan]LearningAgent Ready[/bold cyan]\n\n"
-            "📚 [bold]Commands:[/bold]\n"
-            "  - Type your questions to chat with the agent\n"
-            "  - [yellow]:search[/yellow] [italic]<topic>[/italic] → run web search on a topic\n"
-            "  - [yellow]:search_kb[/yellow] [italic]<term>[/italic] → direct search in knowledge base\n"
-            "  - [yellow]:ingest[/yellow] [italic]<path>[/italic] → add documents to knowledge base\n"
-            "  - [yellow]:provider[/yellow] [italic]<ollama|openrouter> [model_name][/italic] → change LLM provider\n"
-            "  - [yellow]:memory[/yellow] [italic]on/off[/italic] → toggle conversation memory\n"
-            "  - [yellow]:debug[/yellow] [italic]on/off[/italic] → toggle detailed debug info\n"
-            "  - [yellow]:config[/yellow] → show current settings\n"
-            "  - [yellow]:exit[/yellow] → quit the application",
-            border_style="cyan",
-            title="Welcome",
-        )
-    )
-
-    # LLM & retriever
-    try:
-        llm = get_llm()
-        embedder = Embedder(EMBED_MODEL_NAME)
-        vector_store = init_vector_store(embedder)
-        retriever = build_retriever(vector_store, llm, args.top_k)
-    except ValueError as e:
-        if "OpenRouter authentication failed" in str(e) or "OpenRouter API key not found" in str(e):
-            rprint("[red]❌ OpenRouter authentication failed. Please check your API key.[/red]")
-            rprint("[yellow]💡 Quick fix: try these commands in sequence:[/yellow]")
-            rprint("[yellow]  make export_env[/yellow]")
-            rprint("[yellow]  source ./export_env.sh[/yellow]")
-            rprint("[yellow]  make run_openrouter[/yellow]")
-            rprint("[yellow]💡 More details in README.md troubleshooting section[/yellow]")
-            return
-        else:
-            raise
-
-    # Enhanced QA prompt that asks to cite sources
-    qa_prompt = PromptTemplate.from_template(
-        "You are a helpful assistant. Use the following context to answer the question.\n"
-        "If the context doesn't contain relevant information to answer the question, clearly state that no relevant information is available.\n"
-        "If the context has SOME information on the topic but not enough to fully answer, use what's available and acknowledge the limitations.\n"
-        "Always cite sources from the context when using specific information.\n\n"
-        "Context:\n{context}\n\n"
-        "{history}\n\n"
-        "Question: {question}\n\n"
-        "Approach this in steps:\n"
-        "1. Analyze whether the context contains information related to the question\n"
-        "2. Extract relevant details from the context\n"
-        "3. Formulate a clear answer that synthesizes the information and cites sources\n\n"
-        "Answer:"
-    )
-    
-    # Use RunnableSequence instead of LLMChain
-    qa_chain = qa_prompt | llm
-
-    # State dictionary to hold runtime config
-    state = {
-        "memory_enabled": not args.no_memory and CONFIG.get("use_memory", True),
-        "web_fallback": not args.no_web and CONFIG.get("use_web_fallback", True),
-        "top_k": args.top_k,
-        "embedder": embedder,
-        "llm": llm,
-        "qa_chain": qa_chain,  # Store the qa_chain in state
-        "debug": args.debug,
-    }
-
-    # Setup memory if enabled
-    if state["memory_enabled"]:
-        state["memory"] = ConversationBufferMemory(return_messages=True)
-        # Memory is enabled by default in config.yaml
-        rprint("[cyan]🧠 Memory enabled and will be stored in vector DB[/cyan]")
-    else:
-        state["memory"] = None
-
-    # CLI loop
-    while True:
+    def _initialize_llm(self):
+        """Initialize LLM with improved fallback mechanisms."""
+        # Try to create the LLM using the factory, which now has built-in fallback logic
         try:
-            user_input = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            break
-
-        # Check if this is a command
-        if user_input.startswith(":"):
-            parts = user_input.split(maxsplit=1)
-            cmd = parts[0].lower()
-            args = parts[1] if len(parts) > 1 else ""
-            if not process_command(cmd, args, state):
-                break
-            continue
-
-        # ===== Retrieval phase =====
-        rprint("[cyan]🔍 Searching knowledge base...[/cyan]")
-        docs = retriever.invoke(user_input)
+            return LLMFactory.create_llm(self.config)
+        except Exception as e:
+            rprint(f"[red]❌ All LLM initialization attempts failed: {e}[/red]")
+            
+            # Create a dummy LLM that returns helpful error messages
+            rprint("[yellow]⚠️ Using emergency fallback mode - limited functionality[/yellow]")
+            return self._create_emergency_llm()
+    
+    def _create_emergency_llm(self):
+        """Create an emergency LLM that returns helpful error messages."""
+        # This is a simple class that mimics the BaseChatModel interface
+        # but returns helpful error messages with troubleshooting steps
+        class EmergencyLLM(BaseChatModel):
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                from langchain_core.messages import AIMessage
+                from langchain_core.outputs import ChatGeneration, ChatResult
+                
+                # Create a helpful error message with troubleshooting steps
+                response = "I'm currently running in emergency mode with limited functionality. "
+                
+                if self.config.get("model_provider") == "ollama":
+                    response += "\n\nTroubleshooting Ollama connection issues:\n"
+                    response += "1. Make sure Ollama is running with 'ollama serve' in a separate terminal\n"
+                    response += "2. Check if the model is downloaded with 'ollama list'\n"
+                    response += "3. Try switching to OpenRouter with ':provider openrouter' if you have an API key configured\n"
+                    response += "4. Restart the application after starting Ollama"
+                else:  # OpenRouter
+                    response += "\n\nTroubleshooting OpenRouter connection issues:\n"
+                    response += "1. Check your OPENAI_API_KEY in the .env file\n"
+                    response += "2. Verify your internet connection\n"
+                    response += "3. Try switching to Ollama with ':provider ollama' if you have it installed\n"
+                    response += "4. Check the OpenRouter status page for service disruptions"
+                
+                message = AIMessage(content=response)
+                generation = ChatGeneration(message=message)
+                return ChatResult(generations=[generation])
+            
+            def __init__(self, config=None):
+                super().__init__()
+                self.config = config
+            
+            @property
+            def _llm_type(self):
+                return "emergency_llm"
         
-        # Debug: show document sources and scores if available
-        if isinstance(docs, list):
-            context_texts = []
-            sources = []
-            
-            # Create formatted context with source info
-            for i, doc in enumerate(docs):
-                content = doc.page_content
-                metadata = doc.metadata
-                source = metadata.get("source", "unknown")
-                page = metadata.get("page", "")
-                score = metadata.get("score", None)
-                
-                # Format source info
-                source_info = f"[Source: {source}"
-                if page:
-                    source_info += f", page {page}"
-                if score is not None:
-                    source_info += f", relevance: {score:.2f}"
-                source_info += "]"
-                
-                # Add to context with source information
-                context_texts.append(f"{content}\n\n{source_info}")
-                sources.append(source)
-                
-                # Enhanced debug logging
-                if state.get("debug"):
-                    rprint(f"[cyan]Document {i+1}:[/cyan]")
-                    rprint(f"[green]  Source: {source} {page if page else ''}[/green]")
-                    if score is not None:
-                        rprint(f"[yellow]  Score: {score:.4f}[/yellow]")
-                    rprint(f"[blue]  Length: {len(content)} chars[/blue]")
-                    
-                    # Show content preview in debug mode
-                    if content:
-                        preview = content[:min(200, len(content))]
-                        if len(content) > 200:
-                            preview += "..."
-                        rprint(f"[dim]  Preview: {preview}[/dim]")
-                    else:
-                        rprint("[red]  Warning: Empty content![/red]")
-                    rprint("")  # Add spacing between documents
-            
-            # Display retrieval info
-            rprint(f"[green]✅ Found {len(docs)} relevant documents[/green]")
-            if len(set(sources)) > 1:
-                rprint(f"[green]  Sources: {', '.join(set(sources))[:80]}{'...' if len(', '.join(set(sources))) > 80 else ''}[/green]")
+        return EmergencyLLM(config=self.config)
+    
+    def _initialize_vector_db(self):
+        """Initialize vector database with better error handling."""
+        try:
+            return VectorDatabase(self.config)
+        except Exception as e:
+            rprint(f"[yellow]⚠️ Vector database initialization failed: {e}[/yellow]")
+            rprint("[yellow]💡 RAG functionality will be unavailable[/yellow]")
+            return None
+    
+    def _initialize_retrieval_service(self):
+        """Initialize retrieval service with error handling."""
+        try:
+            return RetrievalService(self.vector_db, self.llm, self.config)
+        except Exception as e:
+            rprint(f"[yellow]⚠️ Retrieval service initialization failed: {e}[/yellow]")
+            return None
+        
+        # Register commands
+        self.commands = {
+            "exit": ExitCommand(),
+            "quit": ExitCommand(),
+            "memory": MemoryCommand(),
+            "search": SearchCommand(),
+            "provider": ProviderCommand(),
+            "config": ConfigCommand(),
+            "help": HelpCommand()
+        }
+    
+    def process_command(self, cmd: str, args: str) -> bool:
+        """Process command inputs starting with ':'."""
+        cmd = cmd.lower()
+        
+        if cmd in self.commands:
+            return self.commands[cmd].execute(args, self)
         else:
-            context_texts = []
-            rprint("[yellow]⚠️ No relevant documents found[/yellow]")
-
-        # Web fallback if no results
-        if not context_texts and state["web_fallback"]:
-            rprint("[yellow]🔍 No local results – falling back to web search...[/yellow]")
-            web_ctx = web_fallback(user_input, n_results=CONFIG.get("web_results", 3))
-            if web_ctx:
-                context_texts = [f"{web_ctx}\n\n[Source: web search results]"]
-                rprint("[green]✅ Retrieved information from the web[/green]")
-
-        if not context_texts:
-            rprint(
-                "[red]😕 I couldn't find relevant information. Try ingesting more docs or enabling web search.[/red]"
-            )
-            continue
-
-        # Join context texts and ensure there's content
-        context = "\n\n---\n\n".join(context_texts)
+            rprint(f"[yellow]⚠️ Unknown command: {cmd}[/yellow]")
+            return True
+    
+    def generate_response(self, user_input: str) -> str:
+        """Generate a response to user input with robust error handling."""
+        # Create user message
+        user_message = HumanMessage(content=user_input)
         
-        # Extra debug for context verification
-        if state.get("debug"):
-            rprint(f"[cyan]Total context length: {len(context)} chars[/cyan]")
-            rprint("[cyan]Context sample (first 500 chars):[/cyan]")
-            rprint(f"[dim]{context[:min(500, len(context))]}{'...' if len(context) > 500 else ''}[/dim]")
-            
-            # Offer to save debug info to file
-            rprint("[yellow]Would you like to save debug info to a file? (y/n)[/yellow]")
-            save_debug = input().strip().lower()
-            if save_debug in ["y", "yes"]:
-                debug_file = f"debug_query_{int(time.time())}.txt"
-                with open(debug_file, "w") as f:
-                    f.write(f"QUERY: {user_input}\n\n")
-                    f.write(f"DOCUMENTS RETRIEVED: {len(docs)}\n\n")
-                    for i, doc in enumerate(docs):
-                        f.write(f"--- DOCUMENT {i+1} ---\n")
-                        f.write(f"Source: {doc.metadata.get('source', 'unknown')}\n")
-                        if 'page' in doc.metadata:
-                            f.write(f"Page: {doc.metadata['page']}\n")
-                        if 'score' in doc.metadata:
-                            f.write(f"Score: {doc.metadata['score']}\n")
-                        f.write(f"Content length: {len(doc.page_content)} chars\n")
-                        f.write("\nCONTENT:\n")
-                        f.write(doc.page_content)
-                        f.write("\n\n")
-                    f.write("--- FULL CONTEXT SENT TO LLM ---\n")
-                    f.write(context)
-                rprint(f"[green]Debug info saved to {debug_file}[/green]")
-
-        # Get conversation history if memory is enabled
-        history = ""
-        if state.get("memory"):
-            memory_buffer = state["memory"].buffer
-            if memory_buffer:
-                history = "Previous conversation:\n" + memory_buffer
-
-        # ===== LLM phase =====
-        if state.get("debug"):
-            rprint("[cyan]⚙️ Generating answer...[/cyan]")
-            
-        answer = state["qa_chain"].invoke({"context": context, "question": user_input, "history": history})
+        # Prepare messages for the model
+        messages_for_model = []
+        messages_for_model.extend(self.memory.get_messages())
+        messages_for_model.append(user_message)
         
-        # Clean up the answer to remove <think> sections and any other assistant markup
-        clean_answer = answer
+        # Add user message to memory
+        self.memory.add_message(user_message)
         
-        # Ensure answer is a string before applying regex
-        if not isinstance(clean_answer, str):
-            # Convert to string if it's not already
-            clean_answer = str(clean_answer)
-        
-        # Extract just the content from OpenRouter response if it's in that format    
-        if "content=" in clean_answer and "additional_kwargs=" in clean_answer:
+        # Try web search fallback if enabled
+        web_results = None
+        if self.config.get("use_web_fallback", True):
             try:
-                # Extract the content part from OpenRouter format
-                content_match = re.search(r"content='(.*?)' additional_kwargs=", clean_answer, re.DOTALL)
-                if content_match:
-                    clean_answer = content_match.group(1)
-                    # Unescape any escaped quotes and handle newlines
-                    clean_answer = clean_answer.replace("\\'", "'").replace("\\n", "\n")
-            except Exception as e:
-                # If parsing fails, continue with the original string
-                rprint(f"[yellow]⚠️ Could not parse OpenRouter response format: {e}[/yellow]")
-            
-        # Remove <think>...</think> blocks
-        clean_answer = re.sub(r'<think>.*?</think>', '', clean_answer, flags=re.DOTALL)
-        # Remove any remaining XML-like tags
-        clean_answer = re.sub(r'<[^>]+>', '', clean_answer)
-        # Remove any lines with only dashes or empty lines at the beginning/end
-        clean_answer = re.sub(r'^[\s\-]+', '', clean_answer)
-        clean_answer = re.sub(r'[\s\-]+$', '', clean_answer)
-        # Trim whitespace
-        clean_answer = clean_answer.strip()
+                web_results = self.web_search.search(user_input)
+            except Exception as web_e:
+                rprint(f"[yellow]⚠️ Web search fallback failed: {web_e}[/yellow]")
         
-        rprint(Panel.fit(clean_answer, title="Assistant", border_style="green"))
-
-        if state.get("memory"):
-            state["memory"].save_context({"input": user_input}, {"output": clean_answer})
-
-            # Store conversation in vector DB for future reference
+        try:
+            # First try: Generate response using retrieval if available
+            if self.retrieval:
+                try:
+                    response = self.retrieval.retrieve_and_answer(user_input, messages_for_model)
+                    # Add AI message to memory
+                    self.memory.add_message(AIMessage(content=response))
+                    return response
+                except Exception as retrieval_e:
+                    rprint(f"[yellow]⚠️ Retrieval failed, falling back to direct LLM: {retrieval_e}[/yellow]")
+                    # Fall through to direct LLM response
+            
+            # Second try: Direct LLM response without retrieval
             try:
-                from langchain_core.documents import Document
+                response = self.llm.invoke(messages_for_model).content
+                # Add AI message to memory
+                self.memory.add_message(AIMessage(content=response))
+                return response
+            except Exception as llm_e:
+                # If we have web results, use them in the error message
+                if web_results and not web_results.startswith("Error"):
+                    rprint(f"[yellow]⚠️ LLM response failed, using web results: {llm_e}[/yellow]")
+                    web_response = f"I couldn't access my knowledge base, but I found this on the web:\n\n{web_results}"
+                    self.memory.add_message(AIMessage(content=web_response))
+                    return web_response
+                else:
+                    # Re-raise to be caught by the outer exception handler
+                    raise llm_e
+        except Exception as e:
+            # Format error message based on the type of error
+            if "Connection refused" in str(e) or "Max retries exceeded" in str(e):
+                error_msg = "I couldn't connect to the language model service (Ollama). "
+                error_msg += "\n\nTroubleshooting steps:\n"
+                error_msg += "1. Make sure Ollama is running with 'ollama serve' in a separate terminal\n"
+                error_msg += "2. Check if the model is downloaded with 'ollama list'\n"
+                error_msg += "3. Try switching to OpenRouter with ':provider openrouter' if you have an API key configured\n"
+                error_msg += "4. Restart the application after starting Ollama"
+            elif "API key" in str(e):
+                error_msg = "There was an issue with the API key. "
+                error_msg += "\n\nTroubleshooting steps:\n"
+                error_msg += "1. Check your .env file and ensure you have the correct API keys configured\n"
+                error_msg += "2. For OpenRouter, make sure OPENAI_API_KEY is set to your OpenRouter API key\n"
+                error_msg += "3. Try switching to Ollama with ':provider ollama' if you have it installed"
+            else:
+                error_msg = f"Error generating response: {e}\n\n"
+                error_msg += "Try using ':help' to see available commands or ':provider' to switch providers."
+            
+            rprint(f"[red]❌ {error_msg}[/red]")
+            return f"I encountered an error: {error_msg}"
+    
+    def run(self):
+        """Run the chat loop."""
+        print("\n✨ Initializing LearningAgent...\n")
+        rprint("\n[bold cyan]💬 LearningAgent ready! Type a question or use ':help' for commands.[/bold cyan]\n")
+        
+        while True:
+            try:
+                user_input = input("> ")
+            except (KeyboardInterrupt, EOFError):
+                rprint("\n[bold]Goodbye! 👋[/bold]")
+                break
+            
+            if not user_input.strip():
+                continue
+            
+            # Process commands (starting with :)
+            if user_input.startswith(":"):
+                parts = user_input[1:].strip().split(maxsplit=1)
+                cmd = parts[0].lower()
+                args = parts[1] if len(parts) > 1 else ""
+                
+                should_continue = self.process_command(cmd, args)
+                if not should_continue:
+                    break
+                continue
+            
+            # Generate a response
+            rprint("[cyan]🔍 Thinking...[/cyan]")
+            response = self.generate_response(user_input)
+            
+            # Display the response
+            rprint(Panel(response, title="🤖 Agent", expand=False))
 
-                # Create document from conversation turn
-                conv_doc = Document(
-                    page_content=f"Q: {user_input}\nA: {clean_answer}",
-                    metadata={"source": "conversation", "type": "memory"},
-                )
-
-                # Get embedder and client
-                embedder = state["embedder"]
-                client = connect_to_qdrant()
-
-                # Create embedding
-                vector = embed_with_fallback(embedder, conv_doc.page_content)
-
-                # Use a timestamp-based ID to avoid collisions
-                import time
-
-                doc_id = int(time.time() * 1000)
-
-                # Upsert to Qdrant
-                from qdrant_client import models as qmodels
-
-                client.upsert(
-                    collection_name=COLLECTION,
-                    points=[
-                        qmodels.PointStruct(
-                            id=doc_id, vector=vector, payload=conv_doc.metadata
-                        )
-                    ],
-                )
-            except Exception as e:
-                rprint(f"[yellow]⚠️ Could not store conversation: {e}[/yellow]")
-
+def main():
+    """Main entrypoint for the learning agent."""
+    try:
+        # Load environment variables
+        load_dotenv()
+        
+        # Create and run the agent
+        # Note: LLMFactory now handles Ollama service checks internally
+        agent = LearningAgent()
+        agent.run()
+    except Exception as e:
+        rprint(f"[red]❌ Fatal error: {e}[/red]")
+        import traceback
+        rprint(traceback.format_exc())
 
 if __name__ == "__main__":
     main()

@@ -3,16 +3,12 @@
 # --------------------------------------------------------------------
 # Targets:
 #   make start_qdrant   →  start (or reuse) a local Qdrant Docker
-#   make setup_db       →  create the 'kb' collection if missing
+#   make setup          →  create the collection in Qdrant if missing
 #   make ingest         →  ingest ./docs into Qdrant
-#   make run            →  chat with the agent (starts embedded Qdrant)
-#   make run_docker     →  chat with the agent (Docker Qdrant, preferred)
-#   make run_openrouter →  chat with the agent using OpenRouter models
-#   make export_env     →  prepare environment variables from .env file
+#   make run            →  chat with the agent
+#   make audit          →  show stats and info about the collection
 #   make stop_qdrant    →  stop & remove the Qdrant container
 #   make clean          →  delete qdrant_data volume (DANGER: wipes vectors)
-#   make clear_db       →  delete all data in the kb collection but keep the collection
-#   make audit_db       →  show stats and info about the kb collection
 # --------------------------------------------------------------------
 
 PY      = python
@@ -22,7 +18,7 @@ PORT      = 6333
 QDRANT_IMAGE = qdrant/qdrant:latest
 
 # -------- Docker helpers -----------------------------------------------------
-.PHONY: start_qdrant stop_qdrant clean setup_db ingest run run_docker clear_db audit_db export_env
+.PHONY: start_qdrant stop_qdrant clean setup ingest run audit
 
 # Start Qdrant container (or reuse if it exists)
 start_qdrant:
@@ -43,8 +39,6 @@ start_qdrant:
 	fi
 	@echo "✅ Qdrant available at http://localhost:$(PORT)"
 	@sleep 2  # Give Qdrant a moment to initialize
-	@echo "🛠️  Ensuring collection exists..."
-	@$(PY) setup_qdrant.py
 
 # Stop and remove the Qdrant container
 stop_qdrant:
@@ -71,48 +65,22 @@ clean: stop_qdrant
 	@echo "✅ Local storage cleaned."
 
 # -------- DB initialisation and management -----------------------------------
-setup_db: start_qdrant
-	@echo "🛠️  Ensuring 'kb' collection exists…"
+setup: start_qdrant
+	@echo "🛠️  Setting up collection from config.yaml..."
 	$(PY) setup_qdrant.py
-
-# Clear all vectors from the kb collection but keep the collection structure
-clear_db: start_qdrant
-	@echo "🗑️  Clearing all data from the 'kb' collection..."
-	@echo 'from qdrant_client import QdrantClient\ntry:\n    client = QdrantClient(host="localhost", port=6333)\n    client.delete_collection("kb")\n    print("Deleted collection from Docker Qdrant")\nexcept Exception as e:\n    print(f"Could not clear Docker collection: {e}")\n    try:\n        client = QdrantClient(path="./qdrant_data")\n        client.delete_collection("kb")\n        print("Deleted collection from embedded Qdrant")\n    except Exception as e2:\n        print(f"Could not clear embedded collection: {e2}")\n        print("Could not delete collection. Is Qdrant running?")\n' > clear_db_temp.py
-	$(PY) clear_db_temp.py
-	rm clear_db_temp.py
-	$(PY) setup_qdrant.py
-
-# Audit the database to check its status
-audit_db: start_qdrant
-	@echo "🔍 Auditing Qdrant database..."
-	$(PY) audit_qdrant.py
 
 # -------- Ingestion & Agent ---------------------------------------------------
-ingest: setup_db
+ingest: setup
 	@echo "📚 Ingesting documents from ./docs …"
 	@mkdir -p docs
 	$(PY) ingest.py --path ./docs
 
-# Use embedded qdrant for simplicity
-run: setup_db
+# Run the learning agent
+run: setup
 	@echo "💬 Starting LearningAgent CLI …"
 	$(PY) learning_agent.py
 
-# Use Docker qdrant (preferred for stability)
-run_docker: start_qdrant
-	@echo "💬 Starting LearningAgent CLI with Docker Qdrant …"
-	$(PY) learning_agent.py
-
-# Make the export_env script executable
-export_env: export_env.sh
-	@echo "🔐 Making export_env.sh executable..."
-	@chmod +x export_env.sh
-	@echo "✅ Done! You can now run: source ./export_env.sh"
-	@echo "📝 Note: You must use 'source ./export_env.sh', not just './export_env.sh'"
-
-# Use OpenRouter for LLM provider (with Docker Qdrant)
-run_openrouter: start_qdrant export_env
-	@echo "💬 Starting LearningAgent CLI with OpenRouter models..."
-	@echo "🔑 Loading environment variables from .env file..."
-	@bash -c 'source ./export_env.sh && $(PY) learning_agent.py --provider openrouter'
+# Audit the database to check its status
+audit: 
+	@echo "🔍 Auditing Qdrant database..."
+	$(PY) audit_qdrant.py
