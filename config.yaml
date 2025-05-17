@@ -27,3 +27,7 @@ web_results: 3
 
 # Collection name
 collection: MoravaKTheory
+
+# Response formatting
+use_latex_rendering: true
+prompt_template: "Answer the question based on the following context. \nIf you don't know the answer, just say you don't know; don't make up information.\nFor mathematical expressions, use LaTeX notation with proper delimiters (\\( \\) for inline math and \\[ \\] for display math).\n\nContext:\n{context}\n\nQuestion: {question}\n"
