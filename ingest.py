@@ -43,8 +43,9 @@ def load_config():
 CONFIG = load_config()
 COLLECTION = CONFIG.get("collection", "kb")
 EMBED_MODEL_NAME = CONFIG.get("embedding_model", "BAAI/bge-small-en-v1.5")
-CHUNK_SIZE = CONFIG.get("chunk_size", 512)
-CHUNK_OVERLAP = CONFIG.get("chunk_overlap", 50)
+# Increase default chunk size and overlap to allow chunks to span multiple pages
+CHUNK_SIZE = CONFIG.get("chunk_size", 2000)
+CHUNK_OVERLAP = CONFIG.get("chunk_overlap", 200)
 
 # Initialize embedding model for vector creation
 embedding_model = TextEmbedding(EMBED_MODEL_NAME)
@@ -79,27 +80,44 @@ def load_documents(path: str) -> List[Document]:
     return combined_docs
 
 def _combine_documents_by_source(documents: List[Document]) -> List[Document]:
-    """Combine documents from the same source file to prevent small chunks."""
+    """Combine documents from the same source file to allow chunks to span multiple pages."""
+    # Group documents by source
     source_docs = {}
     
     for doc in documents:
         source = doc.metadata.get("source", "unknown")
         
         if source not in source_docs:
-            source_docs[source] = {
-                "content": doc.page_content,
-                "metadata": doc.metadata.copy()
-            }
-        else:
-            # Append content with a paragraph break
-            source_docs[source]["content"] += "\n\n" + doc.page_content
+            source_docs[source] = []
+        
+        # Add document to the list for this source
+        source_docs[source].append(doc)
     
-    # Create combined documents
+    # Sort documents by page number within each source
+    for source in source_docs:
+        source_docs[source].sort(key=lambda x: x.metadata.get("page", 0))
+    
+    # Combine documents from the same source
     combined_docs = []
-    for source, doc_info in source_docs.items():
+    for source, docs in source_docs.items():
+        # Combine all pages from the source into a single document
+        combined_content = ""
+        # Use metadata from the first document as a base
+        combined_metadata = docs[0].metadata.copy() if docs else {}
+        combined_metadata["source"] = source
+        combined_metadata["page_count"] = len(docs)
+        
+        # Combine content with page markers
+        for i, doc in enumerate(docs):
+            page_num = doc.metadata.get("page", i)
+            # Add page marker and content
+            if combined_content:
+                combined_content += "\n\n"
+            combined_content += doc.page_content
+        
         combined_docs.append(Document(
-            page_content=doc_info["content"],
-            metadata=doc_info["metadata"]
+            page_content=combined_content,
+            metadata=combined_metadata
         ))
     
     return combined_docs
@@ -114,6 +132,9 @@ def _load_single_file(file_path: Path) -> List[Document]:
         for doc in documents:
             doc.metadata["title"] = file_path.stem
             doc.metadata["file_type"] = "pdf"
+            # Ensure page number is stored in metadata for reference
+            if "page" not in doc.metadata:
+                doc.metadata["page"] = doc.metadata.get("page", 0)
             
         return documents
     
@@ -138,18 +159,25 @@ def _is_supported_file(file_path: Path) -> bool:
     return file_path.suffix.lower() in supported_extensions
 
 def create_chunks(documents: List[Document]) -> List[Document]:
-    """Split documents into chunks for embedding."""
+    """Split documents into chunks for embedding, allowing chunks to span multiple pages."""
     if not documents:
         return []
     
     # Use token-based splitting for more semantic chunks
+    # Increased chunk size and overlap allows for chunks to span multiple pages
     splitter = TokenTextSplitter(
         chunk_size=CHUNK_SIZE, 
         chunk_overlap=CHUNK_OVERLAP
     )
     
     chunks = splitter.split_documents(documents)
-    rprint(f"[green]✅ Created {len(chunks)} chunks[/green]")
+    
+    # Add chunk index to metadata for reference
+    for i, chunk in enumerate(chunks):
+        chunk.metadata["chunk_index"] = i
+        chunk.metadata["total_chunks"] = len(chunks)
+    
+    rprint(f"[green]✅ Created {len(chunks)} chunks with size {CHUNK_SIZE} and overlap {CHUNK_OVERLAP}[/green]")
     return chunks
 
 def get_or_create_collection(client: QdrantClient, name: str) -> None:
@@ -245,7 +273,25 @@ def main():
     
     try:
         # Initialize Qdrant client
-        client = QdrantClient(":memory:")  # Local, in-memory Qdrant instance
+        # Try Docker connection first, fall back to embedded if needed
+        try:
+            client = QdrantClient(host="localhost", port=6333)
+            # Test the connection
+            client.get_collections()
+            rprint("[green]✅ Connected to Docker Qdrant[/green]")
+        except Exception as docker_e:
+            rprint(f"[yellow]⚠️ Could not connect to Docker Qdrant: {docker_e}[/yellow]")
+            
+            # Try embedded Qdrant as fallback
+            try:
+                rprint("[cyan]🔄 Trying embedded Qdrant as fallback...[/cyan]")
+                client = QdrantClient(path="./qdrant_data")
+                client.get_collections()
+                rprint("[green]✅ Connected to embedded Qdrant[/green]")
+            except Exception as e:
+                rprint(f"[red]❌ Failed to connect to embedded Qdrant: {e}[/red]")
+                rprint("[yellow]💡 Try running 'make start_qdrant' to start Qdrant Docker[/yellow]")
+                raise RuntimeError("Could not connect to any Qdrant instance")
         
         # Setup collection
         if args.rebuild:
