@@ -37,9 +37,11 @@ def main():
     parser.add_argument("--full", action="store_true", help="Show full document contents")
     parser.add_argument("--export", type=str, help="Export audit to specified file")
     parser.add_argument("--points", type=int, default=None, help="Show specific number of points")
+    parser.add_argument("--summary", action="store_true", help="Show only summary information")
     args = parser.parse_args()
     
-    rprint("[cyan]🔍 Auditing Qdrant database...[/cyan]")
+    rprint("\n[bold cyan]🔍 Auditing Qdrant Database[/bold cyan]")
+    rprint("[dim]Run with --help to see all available options[/dim]\n")
     
     output = []  # Store output for optional file export
     
@@ -63,11 +65,13 @@ def main():
             client = QdrantClient(host="localhost", port=6333)
             collections = client.get_collections().collections
             log("[green]✅ Connected to Docker Qdrant[/green]")
+            connection_type = "Docker"
         except Exception:
             # Fall back to embedded
             client = QdrantClient(path="./qdrant_data")
             collections = client.get_collections().collections
             log("[green]✅ Connected to embedded Qdrant[/green]")
+            connection_type = "Embedded"
         
         collection_names = [collection.name for collection in collections]
         log(f"[bold]Collections: {collection_names}[/bold]")
@@ -76,10 +80,24 @@ def main():
             collection_info = client.get_collection(COLLECTION)
             vector_count = collection_info.points_count
             vector_size = collection_info.config.params.vectors.size
-            log(f"[bold green]Collection '{COLLECTION}' contains {vector_count} vectors (size: {vector_size})[/bold green]")
             
-            # Show collection config
-            log("[bold cyan]Vector Configuration:[/bold cyan]")
+            # Display summary information in a more structured format
+            log("\n[bold cyan]📊 Database Summary[/bold cyan]")
+            log(f"  Connection Type: [green]{connection_type}[/green]")
+            log(f"  Collection Name: [green]{COLLECTION}[/green]")
+            log(f"  Vector Count: [green]{vector_count}[/green]")
+            log(f"  Vector Size: [green]{vector_size}[/green]")
+            log(f"  Distance Metric: [green]{collection_info.config.params.vectors.distance}[/green]")
+            
+            # If summary only, skip the detailed information
+            if args.summary:
+                if vector_count == 0:
+                    log("\n[yellow]⚠️ No documents in the database. Use 'make ingest' to add documents.[/yellow]")
+                log("\n[dim]For more details, run without --summary flag[/dim]")
+                return
+            
+            # Show collection config for non-summary mode
+            log("\n[bold cyan]Vector Configuration:[/bold cyan]")
             log(f"  Distance: {collection_info.config.params.vectors.distance}")
             log(f"  Size: {collection_info.config.params.vectors.size}")
             
@@ -193,4 +211,4 @@ def main():
         rprint(traceback.format_exc())
 
 if __name__ == "__main__":
-    main() 
+    main()

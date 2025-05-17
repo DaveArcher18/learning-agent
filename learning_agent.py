@@ -467,28 +467,82 @@ class ProviderCommand(Command):
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
         parts = args.split()
         if not parts:
-            rprint(f"[cyan]Current provider: {agent.config.get('model_provider')}, "
-                   f"model: {agent.config.get('model')}[/cyan]")
+            current_provider = agent.config.get('model_provider')
+            current_model = agent.config.get('model')
+            
+            rprint(f"\n[bold cyan]🤖 Current Model Configuration:[/bold cyan]")
+            rprint(f"  Provider: [green]{current_provider}[/green]")
+            
+            if current_provider == "ollama":
+                rprint(f"  Model: [green]{current_model}[/green]")
+                # Check if Ollama is running
+                if LLMFactory.check_ollama_service():
+                    rprint("  Status: [green]Ollama service is running[/green]")
+                else:
+                    rprint("  Status: [yellow]⚠️ Ollama service not detected[/yellow]")
+                    rprint("  [yellow]💡 Start Ollama with 'ollama serve' in a separate terminal[/yellow]")
+            else:  # openrouter
+                openrouter_model = agent.config.get('openrouter_model')
+                rprint(f"  Model: [green]{openrouter_model}[/green]")
+                if os.getenv("OPENAI_API_KEY"):
+                    rprint("  Status: [green]OpenRouter API key detected[/green]")
+                else:
+                    rprint("  Status: [yellow]⚠️ OpenRouter API key not found[/yellow]")
+                    rprint("  [yellow]💡 Add OPENAI_API_KEY to your .env file[/yellow]")
+            
+            rprint("\n[dim]Use :provider ollama or :provider openrouter to switch[/dim]")
             return True
         
         provider = parts[0].lower()
         if provider not in ["ollama", "openrouter"]:
             rprint("[yellow]⚠️ Invalid provider. Use 'ollama' or 'openrouter'[/yellow]")
+            rprint("[yellow]💡 Try :help provider for more information[/yellow]")
             return True
         
+        # Store old provider for comparison
+        old_provider = agent.config.get('model_provider')
+        old_model = agent.config.get('model') if provider == "ollama" else agent.config.get('openrouter_model')
+        
+        # Update provider
         agent.config.update("model_provider", provider)
         
+        # Update model if specified
         if len(parts) > 1:
-            agent.config.update("model", parts[1])
+            model_name = parts[1]
+            if provider == "ollama":
+                agent.config.update("model", model_name)
+            else:  # openrouter
+                agent.config.update("openrouter_model", model_name)
         
-        # Update the LLM
-        try:
-            agent.llm = LLMFactory.create_llm(agent.config)
-            # Recreate retrieval service with new LLM
-            agent.retrieval = RetrievalService(agent.vector_db, agent.llm, agent.config)
-            rprint(f"[green]✅ Switched to {provider} with model: {agent.config.get('model')}[/green]")
-        except Exception as e:
-            rprint(f"[red]❌ Failed to switch provider: {e}[/red]")
+        # Get the new model name for display
+        new_model = agent.config.get('model') if provider == "ollama" else agent.config.get('openrouter_model')
+        
+        # Check prerequisites before switching
+        if provider == "ollama" and not LLMFactory.check_ollama_service():
+            rprint("[yellow]⚠️ Ollama service not detected on port 11434[/yellow]")
+            rprint("[yellow]💡 To start Ollama, open a new terminal and run: ollama serve[/yellow]")
+        
+        if provider == "openrouter" and not os.getenv("OPENAI_API_KEY"):
+            rprint("[yellow]⚠️ OpenRouter requires an API key[/yellow]")
+            rprint("[yellow]💡 Add OPENAI_API_KEY=your_openrouter_key to .env file[/yellow]")
+        
+        # Only recreate LLM if provider or model changed
+        if old_provider != provider or old_model != new_model:
+            try:
+                rprint(f"[cyan]🔄 Switching to {provider} with model: {new_model}...[/cyan]")
+                agent.llm = LLMFactory.create_llm(agent.config)
+                # Recreate retrieval service with new LLM
+                agent.retrieval = RetrievalService(agent.vector_db, agent.llm, agent.config)
+                rprint(f"[green]✅ Successfully switched to {provider} with model: {new_model}[/green]")
+            except Exception as e:
+                rprint(f"[red]❌ Failed to switch provider: {e}[/red]")
+                if provider == "ollama":
+                    rprint("[yellow]💡 Make sure Ollama is running and the model is downloaded[/yellow]")
+                    rprint("[yellow]💡 Try 'ollama list' to see available models[/yellow]")
+                else:  # openrouter
+                    rprint("[yellow]💡 Check your OpenRouter API key and internet connection[/yellow]")
+        else:
+            rprint(f"[cyan]ℹ️ Already using {provider} with model: {new_model}[/cyan]")
         
         return True
 
@@ -503,20 +557,155 @@ class ConfigCommand(Command):
                 rprint(f"  {key}: {value}")
         return True
 
+class DbCommand(Command):
+    """Command to manage and audit the database."""
+    
+    def execute(self, args: str, agent: 'LearningAgent') -> bool:
+        parts = args.split()
+        action = parts[0].lower() if parts else "status"
+        
+        if action == "status" or action == "info":
+            self._show_db_status(agent)
+        elif action == "audit":
+            # Parse additional arguments for audit
+            audit_args = []
+            if len(parts) > 1:
+                audit_args = parts[1:]
+            self._run_audit(audit_args)
+        else:
+            rprint("[yellow]⚠️ Unknown database command. Try :db status or :db audit[/yellow]")
+            rprint("[yellow]💡 Use :help db for more information[/yellow]")
+        
+        return True
+    
+    def _show_db_status(self, agent):
+        """Show basic database status."""
+        if not agent.vector_db or not agent.vector_db.client:
+            rprint("[yellow]⚠️ Vector database is not connected[/yellow]")
+            return
+        
+        try:
+            # Use the audit_qdrant.py script with --summary flag for consistent output
+            import subprocess
+            import sys
+            
+            rprint("[cyan]🔍 Checking database status...[/cyan]")
+            
+            cmd = [sys.executable, "audit_qdrant.py", "--summary"]
+            subprocess.run(cmd)
+            
+            # Add additional agent-specific information
+            rprint(f"\n[bold cyan]🤖 Agent Database Connection:[/bold cyan]")
+            rprint(f"  RAG Status: [green]{'Active' if agent.retrieval and agent.retrieval.vector_store_healthy else 'Inactive'}[/green]")
+            
+            if agent.retrieval and not agent.retrieval.vector_store_healthy:
+                rprint("[yellow]⚠️ Vector store connection issues detected[/yellow]")
+            
+            rprint("\n[dim]For detailed information, run :db audit or python audit_qdrant.py[/dim]")
+        except Exception as e:
+            rprint(f"[red]❌ Error checking database status: {e}[/red]")
+            rprint("[yellow]💡 Make sure audit_qdrant.py exists in the current directory[/yellow]")
+    
+    def _run_audit(self, args):
+        """Run the audit_qdrant.py script with arguments."""
+        import subprocess
+        import sys
+        
+        cmd = [sys.executable, "audit_qdrant.py"]
+        for arg in args:
+            cmd.append(arg)
+        
+        rprint(f"[cyan]🔍 Running database audit: {' '.join(cmd)}[/cyan]")
+        
+        try:
+            subprocess.run(cmd)
+        except Exception as e:
+            rprint(f"[red]❌ Error running audit: {e}[/red]")
+            rprint("[yellow]💡 Make sure audit_qdrant.py exists in the current directory[/yellow]")
+
+
 class HelpCommand(Command):
     """Command to show help information."""
     
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
+        if args.lower() == "db" or args.lower() == "database":
+            self._show_db_help()
+        elif args.lower() == "provider" or args.lower() == "model":
+            self._show_provider_help()
+        else:
+            self._show_general_help()
+        return True
+    
+    def _show_general_help(self):
         rprint("""
+[bold cyan]📚 LearningAgent Help[/bold cyan]
+
 Available commands:
   :exit, :quit       - Exit the chat
   :memory on/off     - Turn memory on or off
   :search <query>    - Search the web for information
   :provider <name>   - Switch between 'ollama' and 'openrouter'
   :config            - Show current configuration
+  :db                - Manage and audit the vector database
+  :db status         - Show database connection status
+  :db audit          - Run detailed database audit
   :help              - Show this help message
+  :help db           - Show database management help
+  :help provider     - Show model provider help
         """)
-        return True
+    
+    def _show_db_help(self):
+        rprint("""
+[bold cyan]🗄️ Database Management Help[/bold cyan]
+
+Managing your vector database:
+
+[bold]Auditing the database:[/bold]
+  Run [green]python audit_qdrant.py[/green] or [green]make audit[/green] to:
+  • View collection statistics
+  • See sample documents
+  • Check vector counts and configuration
+
+[bold]Command options:[/bold]
+  • [green]--count N[/green]: Show N sample documents (default: 5)
+  • [green]--full[/green]: Show complete document contents
+  • [green]--export FILE[/green]: Save audit results to a file
+  • [green]--points N[/green]: Show specific number of points
+
+[bold]Other database operations:[/bold]
+  • [green]make start_qdrant[/green]: Start the Qdrant Docker container
+  • [green]make stop_qdrant[/green]: Stop and remove the container
+  • [green]make clean[/green]: Delete all vector data (CAUTION!)
+  • [green]make ingest[/green]: Add documents from ./docs directory
+        """)
+    
+    def _show_provider_help(self):
+        rprint("""
+[bold cyan]🔄 Model Provider Help[/bold cyan]
+
+Switching between model providers:
+
+[bold]Current providers:[/bold]
+  • [green]ollama[/green]: Local models via Ollama (default)
+  • [green]openrouter[/green]: Cloud models via OpenRouter API
+
+[bold]Switching providers:[/bold]
+  • [green]:provider ollama[/green]: Switch to local Ollama
+  • [green]:provider openrouter[/green]: Switch to OpenRouter
+
+[bold]Specifying models:[/bold]
+  • [green]:provider ollama qwen3:4b[/green]: Use specific Ollama model
+  • [green]:provider openrouter deepseek/deepseek-prover-v2:free[/green]: Use specific OpenRouter model
+
+[bold]Requirements:[/bold]
+  • Ollama: Must be running locally (start with [green]ollama serve[/green])
+  • OpenRouter: Requires API key in .env file as OPENAI_API_KEY
+
+[bold]Configuration:[/bold]
+  • Default models are set in config.yaml
+  • Use [green]:config[/green] to view current settings
+        """)
+
 
 # --------------------------------------------------------------------------- #
 #                              Learning Agent                                 #
@@ -545,6 +734,18 @@ class LearningAgent:
         
         # Initialize web search
         self.web_search = WebSearchService(self.config)
+        
+        # Register commands
+        self.commands = {
+            "exit": ExitCommand(),
+            "quit": ExitCommand(),
+            "memory": MemoryCommand(),
+            "search": SearchCommand(),
+            "provider": ProviderCommand(),
+            "config": ConfigCommand(),
+            "db": DbCommand(),
+            "help": HelpCommand()
+        }
     
     def _initialize_llm(self):
         """Initialize LLM with improved fallback mechanisms."""
@@ -614,16 +815,7 @@ class LearningAgent:
             rprint(f"[yellow]⚠️ Retrieval service initialization failed: {e}[/yellow]")
             return None
         
-        # Register commands
-        self.commands = {
-            "exit": ExitCommand(),
-            "quit": ExitCommand(),
-            "memory": MemoryCommand(),
-            "search": SearchCommand(),
-            "provider": ProviderCommand(),
-            "config": ConfigCommand(),
-            "help": HelpCommand()
-        }
+        # Commands are now initialized in __init__
     
     def process_command(self, cmd: str, args: str) -> bool:
         """Process command inputs starting with ':'."""
