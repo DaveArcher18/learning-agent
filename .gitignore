@@ -9,3 +9,5 @@ WorkingExample
 
 .env__pycache__/
 .env
+
+ragflow/
