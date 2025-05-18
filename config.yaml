@@ -3,31 +3,40 @@
 
 # Model settings
 model: qwen3:4b  # For Ollama models like "qwen3:4b"
-model_provider: "ollama"  # Options: "ollama" or "openrouter"
+model_provider: "openrouter"  # Options: "ollama" or "openrouter"
 openrouter_model: "deepseek/deepseek-prover-v2:free"  # Only used when model_provider is "openrouter"
 temperature: 0.3
 
-# Memory
-use_memory: false
+# Memory settings
+use_memory: true  # Enable/disable conversation memory (storing chat history)
+use_chat_buffer: true  # Enable/disable short-term memory buffer for current session only
+chat_buffer_size: 5  # Maximum number of messages to keep in the short-term buffer
 
-# Embedding
-embedding_model: BAAI/bge-small-en-v1.5
+# Embedding settings
+embedding_model: BAAI/bge-small-en-v1.5  # Options: BAAI/bge-small-en-v1.5, BAAI/bge-m3, BAAI/bge-large-en-v1.5
+embedding_device: "cpu"  # Device to use for embeddings: "cpu" or "cuda:0" for GPU
+use_fp16: false  # Use half-precision for embeddings (set to false when using CPU)
 
 # Retrieval settings
-top_k: 8
-similarity_threshold: 0.5
+top_k: 8  # Number of documents to retrieve
+similarity_threshold: 0.5  # Minimum similarity score for retrieved documents
 
 # Chunking settings
-chunk_size: 10000
-chunk_overlap: 500
+chunk_size: 10000  # Maximum size of document chunks
+chunk_overlap: 500  # Overlap between chunks
 
 # Web search fallback
-use_web_fallback: false
-web_results: 3
+use_web_fallback: false  # Enable/disable web search when no relevant documents found
+web_results: 3  # Number of web results to return
 
-# Collection name
-collection: MoravaKTheory
+# Database settings
+collection: MoravaKTheory  # Vector database collection name
+db_search_limit: 20  # Maximum number of results to return when searching the database
+
+# UI settings
+use_markdown_rendering: true  # Enable/disable markdown rendering in chat
+use_latex_rendering: true  # Enable/disable LaTeX rendering in chat
+code_highlighting: true  # Enable/disable syntax highlighting for code blocks
 
 # Response formatting
-use_latex_rendering: true
-prompt_template: "Answer the question based on the following context. \nIf you don't know the answer, just say you don't know; don't make up information.\nFor mathematical expressions, use LaTeX notation with proper delimiters (\\( \\) for inline math and \\[ \\] for display math).\n\nContext:\n{context}\n\nQuestion: {question}\n"
+prompt_template: "Answer the question based on the following context. \nIf you don't know the answer, just say you don't know; don't make up information.\nFor mathematical expressions, use LaTeX notation with proper delimiters (\\( \\) for inline math and \\[ \\] for display math).\nFor special mathematical notations, use proper LaTeX commands like \\mathbb{}, \\mathcal{}, subscripts (_{}), and superscripts (^{}).\n\nContext:\n{context}\n\nQuestion: {question}\n"

@@ -22,6 +22,9 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*was deprecated.*")
 warnings.filterwarnings("ignore", message=".*TOKENIZERS_PARALLELISM.*")
 
+# Set environment variable to avoid HuggingFace tokenizers parallelism warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # LangChain imports
 from langchain_community.chat_models import ChatOllama
 from langchain_openai import ChatOpenAI
@@ -295,7 +298,9 @@ class RetrievalService:
             
             # Define the prompt template with context
             template = self.config.get("prompt_template")
-            prompt = ChatPromptTemplate.from_template(template)
+            # Create a properly formatted prompt template without empty variables
+            # This fixes the "Input to ChatPromptTemplate is missing variables {''}" error
+            prompt = ChatPromptTemplate.from_template(template.replace("{}", ""))
             
             # Create a retrieval chain
             retrieval_chain = (
@@ -572,8 +577,17 @@ class DbCommand(Command):
             if len(parts) > 1:
                 audit_args = parts[1:]
             self._run_audit(audit_args)
+        elif action == "search":
+            self._search_db(agent, " ".join(parts[1:]) if len(parts) > 1 else "")
+        elif action == "search-view" and len(parts) > 1:
+            try:
+                doc_num = int(parts[1])
+                self._view_search_result(agent, doc_num)
+            except ValueError:
+                rprint("[yellow]⚠️ Please provide a valid document number[/yellow]")
+                rprint("[yellow]💡 Usage: :db search-view <number>[/yellow]")
         else:
-            rprint("[yellow]⚠️ Unknown database command. Try :db status or :db audit[/yellow]")
+            rprint("[yellow]⚠️ Unknown database command. Try :db status, :db audit, or :db search <query>[/yellow]")
             rprint("[yellow]💡 Use :help db for more information[/yellow]")
         
         return True
@@ -605,6 +619,130 @@ class DbCommand(Command):
         except Exception as e:
             rprint(f"[red]❌ Error checking database status: {e}[/red]")
             rprint("[yellow]💡 Make sure audit_qdrant.py exists in the current directory[/yellow]")
+    
+    def _search_db(self, agent: 'LearningAgent', query: str):
+        """Search the database and show raw results."""
+        if not query.strip():
+            rprint("[yellow]⚠️ Please provide a search query[/yellow]")
+            rprint("[yellow]💡 Usage: :db search <your query>[/yellow]")
+            return
+            
+        try:
+            rprint(f"[bold cyan]🔍 Database Search Results for: \"{query}\"[/bold cyan]")
+            
+            # Check if vector database is initialized
+            if not agent.vector_db or not agent.vector_db.vector_store:
+                rprint("[red]❌ Vector database not initialized or unavailable[/red]")
+                return
+                
+            # Get search parameters from config
+            top_k = agent.config.get("top_k", 5)
+            similarity_threshold = agent.config.get("similarity_threshold", 0.5)
+            db_search_limit = agent.config.get("db_search_limit", 20)
+            
+            # Create a retriever with the same parameters as the agent uses
+            retriever = agent.vector_db.vector_store.as_retriever(
+                search_kwargs={"k": min(top_k, db_search_limit), "score_threshold": similarity_threshold}
+            )
+            
+            # Perform the search
+            docs = retriever.get_relevant_documents(query)
+            
+            if not docs:
+                rprint("[yellow]⚠️ No matching documents found[/yellow]")
+                return
+                
+            # Store the search results for later viewing
+            self.last_search_results = docs
+            
+            # Display results with similarity scores
+            rprint(f"[green]✅ Found {len(docs)} relevant documents[/green]")
+            rprint(f"[dim]Using top_k={top_k}, similarity_threshold={similarity_threshold}[/dim]\n")
+            
+            from rich.table import Table
+            table = Table(title="Search Results")
+            table.add_column("#", style="cyan", justify="right")
+            table.add_column("Score", style="green", justify="right")
+            table.add_column("Source", style="yellow")
+            table.add_column("Content Preview", style="white")
+            
+            for i, doc in enumerate(docs, 1):
+                # Get metadata
+                source = doc.metadata.get("source", "unknown")
+                score = doc.metadata.get("score", "N/A")
+                
+                # Truncate content for preview
+                content_preview = doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content
+                
+                # Add to table
+                table.add_row(str(i), f"{score:.4f}" if isinstance(score, float) else str(score), 
+                             source, content_preview)
+            
+            from rich.console import Console
+            console = Console()
+            console.print(table)
+            
+            # Show the exact context that would be sent to the LLM
+            if agent.retrieval:
+                rprint("\n[bold cyan]🔄 Context that would be sent to the LLM:[/bold cyan]")
+                formatted_context = agent.retrieval._format_docs(docs)
+                
+                # Try to render as markdown if enabled
+                if agent.config.get("use_markdown_rendering", True):
+                    try:
+                        from rich.markdown import Markdown
+                        from rich.panel import Panel
+                        md = Markdown(formatted_context)
+                        console.print(Panel(md, title="Context for LLM", expand=False))
+                    except Exception:
+                        # Fall back to plain text
+                        console.print(Panel(formatted_context, title="Context for LLM", expand=False))
+                else:
+                    console.print(Panel(formatted_context, title="Context for LLM", expand=False))
+            
+            # Ask if user wants to see full content of any document
+            rprint("\n[dim]To view full content of a document, use :db search-view <number>[/dim]")
+            
+        except Exception as e:
+            rprint(f"[red]❌ Error searching database: {e}[/red]")
+    
+    def _view_search_result(self, agent: 'LearningAgent', doc_num: int):
+        """View the full content of a specific search result."""
+        if not hasattr(self, 'last_search_results') or not self.last_search_results:
+            rprint("[yellow]⚠️ No search results available. Run :db search <query> first.[/yellow]")
+            return
+        
+        if doc_num < 1 or doc_num > len(self.last_search_results):
+            rprint(f"[yellow]⚠️ Invalid document number. Please choose between 1 and {len(self.last_search_results)}[/yellow]")
+            return
+        
+        # Get the requested document (1-indexed for user, 0-indexed for list)
+        doc = self.last_search_results[doc_num - 1]
+        source = doc.metadata.get("source", "unknown")
+        score = doc.metadata.get("score", "N/A")
+        
+        # Display the full document content
+        from rich.panel import Panel
+        from rich.markdown import Markdown
+        from rich.console import Console
+        
+        console = Console()
+        
+        # Create header with metadata
+        header = f"Document {doc_num} | Source: {source} | Score: {score:.4f if isinstance(score, float) else score}"
+        
+        # Display the full content
+        if agent.config.get("use_markdown_rendering", True):
+            # Try to render as markdown
+            try:
+                md = Markdown(doc.page_content)
+                console.print(Panel(md, title=header, expand=False))
+            except Exception:
+                # Fall back to plain text if markdown rendering fails
+                console.print(Panel(doc.page_content, title=header, expand=False))
+        else:
+            # Use plain text panel
+            console.print(Panel(doc.page_content, title=header, expand=False))
     
     def _run_audit(self, args):
         """Run the audit_qdrant.py script with arguments."""
@@ -649,6 +787,7 @@ Available commands:
   :db                - Manage and audit the vector database
   :db status         - Show database connection status
   :db audit          - Run detailed database audit
+  :db search <query> - Search the database and see raw results
   :help              - Show this help message
   :help db           - Show database management help
   :help provider     - Show model provider help
@@ -659,6 +798,11 @@ Available commands:
 [bold cyan]🗄️ Database Management Help[/bold cyan]
 
 Managing your vector database:
+
+[bold]Database commands:[/bold]
+  • [green]:db status[/green]: Show database connection status
+  • [green]:db audit[/green]: Run detailed database audit
+  • [green]:db search <query>[/green]: Search the database and see raw results
 
 [bold]Auditing the database:[/bold]
   Run [green]python audit_qdrant.py[/green] or [green]make audit[/green] to:
@@ -734,6 +878,11 @@ class LearningAgent:
         
         # Initialize web search
         self.web_search = WebSearchService(self.config)
+        
+        # Define message prefixes for output formatting
+        self.ASSISTANT_PREFIX = "🤖"
+        self.SYSTEM_PREFIX = "🔧"
+        self.USER_PREFIX = "💬"
         
         # Register commands
         self.commands = {
@@ -928,8 +1077,92 @@ class LearningAgent:
             rprint("[cyan]🔍 Thinking...[/cyan]")
             response = self.generate_response(user_input)
             
-            # Display the response
-            rprint(Panel(response, title="🤖 Agent", expand=False))
+            # Display the response with markdown/LaTeX rendering if enabled
+            if self.config.get("use_markdown_rendering", True):
+                try:
+                    from rich.markdown import Markdown
+                    from rich.console import Console
+                    from rich.panel import Panel
+                    
+                    # Process LaTeX if enabled
+                    if self.config.get("use_latex_rendering", True):
+                        import re
+                        
+                        # Replace inline LaTeX with rich formatting
+                        # Find all \( ... \) patterns for inline math
+                        inline_pattern = r'\\\((.+?)\\\)'
+                        response = re.sub(inline_pattern, r'*\\(\1\\)*', response)
+                        
+                        # Find all \[ ... \] patterns for display math
+                        display_pattern = r'\\\[(.+?)\\\]'
+                        response = re.sub(display_pattern, r'\n\n**\\[\1\\]**\n\n', response)
+                        
+                        # Improve rendering of special math notations
+                        # Handle \mathbb{} notation
+                        mathbb_pattern = r'\\mathbb\{([^}]+)\}'
+                        response = re.sub(mathbb_pattern, r'𝔻\1', response)
+                        
+                        # Handle \mathcal{} notation
+                        mathcal_pattern = r'\\mathcal\{([^}]+)\}'
+                        response = re.sub(mathcal_pattern, r'𝓒\1', response)
+                        
+                        # Handle subscripts (_{})
+                        subscript_pattern = r'_\{([^}]+)\}'
+                        response = re.sub(subscript_pattern, lambda m: ''.join(['_' + c for c in m.group(1)]), response)
+                        
+                        # Handle superscripts (^{})
+                        superscript_pattern = r'\^\{([^}]+)\}'
+                        response = re.sub(superscript_pattern, lambda m: ''.join(['^' + c for c in m.group(1)]), response)
+                        
+                        # Handle common math symbols
+                        response = response.replace('\\infty', '∞')
+                        response = response.replace('\\pi', 'π')
+                        response = response.replace('\\theta', 'θ')
+                        response = response.replace('\\alpha', 'α')
+                        response = response.replace('\\beta', 'β')
+                        response = response.replace('\\gamma', 'γ')
+                        response = response.replace('\\delta', 'δ')
+                        response = response.replace('\\epsilon', 'ε')
+                        response = response.replace('\\lambda', 'λ')
+                        response = response.replace('\\sigma', 'σ')
+                        response = response.replace('\\sum', '∑')
+                        response = response.replace('\\prod', '∏')
+                        response = response.replace('\\int', '∫')
+                        response = response.replace('\\partial', '∂')
+                        response = response.replace('\\nabla', '∇')
+                        response = response.replace('\\times', '×')
+                        response = response.replace('\\cdot', '·')
+                        response = response.replace('\\approx', '≈')
+                        response = response.replace('\\neq', '≠')
+                        response = response.replace('\\leq', '≤')
+                        response = response.replace('\\geq', '≥')
+                        response = response.replace('\\subset', '⊂')
+                        response = response.replace('\\supset', '⊃')
+                        response = response.replace('\\cup', '∪')
+                        response = response.replace('\\cap', '∩')
+                        response = response.replace('\\in', '∈')
+                        response = response.replace('\\notin', '∉')
+                        response = response.replace('\\forall', '∀')
+                        response = response.replace('\\exists', '∃')
+                        response = response.replace('\\rightarrow', '→')
+                        response = response.replace('\\leftarrow', '←')
+                        response = response.replace('\\Rightarrow', '⇒')
+                        response = response.replace('\\Leftarrow', '⇐')
+                        response = response.replace('\\leftrightarrow', '↔')
+                        response = response.replace('\\Leftrightarrow', '⇔')
+                
+                    # Create a console for rich output
+                    console = Console()
+                    
+                    # Render the message as markdown in a panel
+                    md = Markdown(response)
+                    console.print(Panel(md, title="🤖 Agent", expand=False))
+                except ImportError:
+                    # Fall back to plain panel if rich markdown is not available
+                    rprint(Panel(response, title="🤖 Agent", expand=False))
+            else:
+                # Use standard panel without markdown rendering
+                rprint(Panel(response, title="🤖 Agent", expand=False))
 
 def main():
     """Main entrypoint for the learning agent."""
