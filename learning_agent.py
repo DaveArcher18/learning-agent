@@ -6,11 +6,11 @@ Refactored with a class-based architecture for better maintainability.
 """
 
 import os
-import yaml
+# import yaml # No longer used directly in this file
 import warnings
-import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, Callable
+# import logging # No longer used directly in this file
+# from pathlib import Path # No longer used directly in this file
+from typing import List, Dict, Any, Optional, Union, Callable # Path was removed from here too
 from abc import ABC, abstractmethod
 from rich import print as rprint
 from rich.panel import Panel
@@ -36,69 +36,27 @@ from langchain_core.language_models import BaseChatModel
 
 # Vector store and embeddings
 import fastembed
-from qdrant_client import QdrantClient
+# QdrantClient is now imported in qdrant_utils
+# from qdrant_client import QdrantClient
 from qdrant_client import models as qmodels
 from langchain_qdrant import QdrantVectorStore
+from qdrant_utils import connect_to_qdrant # Import the new utility
 from langchain_community.embeddings import FastEmbedEmbeddings
 
 # Exa search for web fallback
 from exa_py import Exa
 
-# --------------------------------------------------------------------------- #
-#                            Configuration Manager                            #
-# --------------------------------------------------------------------------- #
-class ConfigManager:
-    """Manages configuration loading and access."""
-    
-    CONFIG_PATH = "config.yaml"
-    DEFAULT_CONFIG = {
-        "model": "qwen3:4b",
-        "model_provider": "ollama",
-        "openrouter_model": "deepseek/deepseek-prover-v2:free",
-        "temperature": 0.3,
-        "use_memory": True,
-        "embedding_model": "BAAI/bge-small-en-v1.5",
-        "top_k": 5,
-        "similarity_threshold": 0.5,
-        "chunk_size": 2000,
-        "chunk_overlap": 200,
-        "use_web_fallback": True,
-        "web_results": 3,
-        "collection": "kb",
-        "prompt_template": "Answer the question based on the following context. \nIf you don't know the answer, just say you don't know; don't make up information.\n\nContext:\n{context}\n\nQuestion: {question}\n"
-    }
-    
-    def __init__(self):
-        self.config = self.load_config()
-    
-    def load_config(self) -> Dict[str, Any]:
-        """Load configuration from YAML file."""
-        if not os.path.exists(self.CONFIG_PATH):
-            rprint(f"[yellow]⚠️ Config file {self.CONFIG_PATH} not found, using defaults.[/yellow]")
-            return self.DEFAULT_CONFIG
-
-        try:
-            with open(self.CONFIG_PATH, "r") as f:
-                config = yaml.safe_load(f)
-                # Merge with defaults for any missing keys
-                return {**self.DEFAULT_CONFIG, **config}
-        except Exception as e:
-            rprint(f"[red]❌ Error loading config: {e}[/red]")
-            return self.DEFAULT_CONFIG
-    
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get a configuration value."""
-        return self.config.get(key, default)
-    
-    def update(self, key: str, value: Any) -> None:
-        """Update a configuration value in memory."""
-        self.config[key] = value
+# Import ConfigManager from the new utility file
+from config_utils import ConfigManager
 
 # --------------------------------------------------------------------------- #
 #                                LLM Factory                                  #
 # --------------------------------------------------------------------------- #
 class LLMFactory:
-    """Factory for creating LLM instances with robust error handling."""
+    """
+    Factory for creating Language Model (LLM) instances.
+    Provides robust error handling and fallback mechanisms for LLM initialization.
+    """
     
     @staticmethod
     def check_ollama_service() -> bool:
@@ -115,7 +73,21 @@ class LLMFactory:
     
     @staticmethod
     def create_llm(config: ConfigManager) -> BaseChatModel:
-        """Create an LLM instance based on the configured provider with fallback handling."""
+        """
+        Creates an LLM instance based on the provider specified in the configuration.
+        Handles initialization for 'openrouter' and 'ollama' providers,
+        including API key checks for OpenRouter and service availability checks for Ollama.
+        Implements fallback logic between providers if one fails.
+
+        Args:
+            config (ConfigManager): The configuration manager instance.
+
+        Returns:
+            BaseChatModel: An instance of the configured language model.
+        
+        Raises:
+            ValueError: If an API key is missing for OpenRouter or if all LLM providers fail to initialize.
+        """
         model_provider = config.get("model_provider", "ollama")
         model = config.get("model", "qwen3:4b")
         temperature = config.get("temperature", 0.3)
@@ -203,7 +175,11 @@ class LLMFactory:
 #                              Vector Database                                #
 # --------------------------------------------------------------------------- #
 class VectorDatabase:
-    """Manages connections and operations with the vector database."""
+    """
+    Manages connections and operations with the Qdrant vector database.
+    Uses a centralized utility for Qdrant connection and initializes
+    the vector store with appropriate embeddings.
+    """
     
     def __init__(self, config: ConfigManager):
         self.config = config
@@ -214,29 +190,10 @@ class VectorDatabase:
         self.client = self._connect_to_qdrant()
         self.vector_store = self._initialize_vector_store()
     
-    def _connect_to_qdrant(self) -> QdrantClient:
-        """Connect to Qdrant, prioritizing Docker over embedded."""
-        # Try Docker connection first
-        try:
-            client = QdrantClient(host="localhost", port=6333)
-            # Test the connection
-            client.get_collections()
-            rprint("[green]✅ Connected to Docker Qdrant[/green]")
-            return client
-        except Exception as docker_e:
-            rprint(f"[yellow]⚠️ Could not connect to Docker Qdrant: {docker_e}[/yellow]")
-            
-            # Try embedded Qdrant as fallback
-            try:
-                rprint("[cyan]🔄 Trying embedded Qdrant as fallback...[/cyan]")
-                client = QdrantClient(path="./qdrant_data")
-                client.get_collections()
-                rprint("[green]✅ Connected to embedded Qdrant[/green]")
-                return client
-            except Exception as e:
-                rprint(f"[red]❌ Failed to connect to embedded Qdrant: {e}[/red]")
-                rprint("[yellow]💡 Try running 'make start_qdrant' to start Qdrant Docker[/yellow]")
-                raise RuntimeError("Could not connect to any Qdrant instance")
+    def _connect_to_qdrant(self) -> QdrantClient: # Keep QdrantClient type hint for clarity
+        """Connect to Qdrant using the centralized utility function."""
+        # The utility function already handles printing messages and raising errors.
+        return connect_to_qdrant()
     
     def _initialize_vector_store(self) -> Optional[QdrantVectorStore]:
         """Initialize the vector store for retrieval."""
@@ -276,7 +233,10 @@ class VectorDatabase:
 #                              Retrieval Service                              #
 # --------------------------------------------------------------------------- #
 class RetrievalService:
-    """Service for retrieving relevant documents with robust error handling."""
+    """
+    Service for retrieving relevant documents from the vector database
+    and generating answers using the LLM, with robust error handling and fallbacks.
+    """
     
     def __init__(self, vector_db: VectorDatabase, llm: BaseChatModel, config: ConfigManager):
         self.vector_db = vector_db
@@ -329,7 +289,23 @@ class RetrievalService:
         return "\n\n".join(context_parts)
     
     def retrieve_and_answer(self, query: str, messages: List[BaseMessage]) -> str:
-        """Retrieve relevant documents and answer the query with fallback mechanisms."""
+        """
+        Retrieves relevant documents based on the query and generates an answer.
+        
+        First attempts to use the RAG (Retrieval Augmented Generation) chain if the
+        vector store is healthy and contains documents. If RAG fails or is unavailable,
+        it falls back to a direct LLM response.
+
+        Args:
+            query (str): The user's query.
+            messages (List[BaseMessage]): The history of messages for context.
+
+        Returns:
+            str: The generated answer.
+            
+        Raises:
+            Exception: If the direct LLM response also fails.
+        """
         # Check if vector store is healthy and has documents
         has_docs = False
         try:
@@ -366,7 +342,10 @@ class RetrievalService:
 #                                Web Search                                   #
 # --------------------------------------------------------------------------- #
 class WebSearchService:
-    """Service for web search fallback."""
+    """
+    Service for performing web searches as a fallback or direct command.
+    Uses the Exa API for search functionality.
+    """
     
     def __init__(self, config: ConfigManager):
         self.config = config
@@ -398,7 +377,10 @@ class WebSearchService:
 #                               Memory Service                                #
 # --------------------------------------------------------------------------- #
 class ChatMemory:
-    """Manages conversation history."""
+    """
+    Manages the conversation history (memory) for the chat agent.
+    Allows adding messages, retrieving history, clearing memory, and enabling/disabling memory.
+    """
     
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
@@ -425,21 +407,31 @@ class ChatMemory:
 #                               Command Pattern                               #
 # --------------------------------------------------------------------------- #
 class Command(ABC):
-    """Base command interface."""
+    """Abstract base class for defining agent commands."""
     
     @abstractmethod
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
-        """Execute the command."""
+        """
+        Executes the command.
+
+        Args:
+            args (str): Arguments for the command.
+            agent (LearningAgent): The instance of the LearningAgent.
+
+        Returns:
+            bool: True if the agent should continue running, False to exit.
+        """
         pass
 
 class ExitCommand(Command):
-    """Command to exit the application."""
+    """Command to exit the chat application."""
     
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
+        rprint("\n[bold]Goodbye! 👋[/bold]") # Moved message here from agent.run()
         return False
 
 class MemoryCommand(Command):
-    """Command to manage memory settings."""
+    """Command to manage chat memory settings (on/off)."""
     
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
         if args.lower() in ["on", "true", "yes", "1"]:
@@ -453,7 +445,7 @@ class MemoryCommand(Command):
         return True
 
 class SearchCommand(Command):
-    """Command to search the web."""
+    """Command to perform a web search using the WebSearchService."""
     
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
         if not args:
@@ -467,7 +459,7 @@ class SearchCommand(Command):
         return True
 
 class ProviderCommand(Command):
-    """Command to switch LLM provider."""
+    """Command to switch the LLM provider (e.g., ollama, openrouter) and optionally the model."""
     
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
         parts = args.split()
@@ -552,7 +544,7 @@ class ProviderCommand(Command):
         return True
 
 class ConfigCommand(Command):
-    """Command to show current configuration."""
+    """Command to display the current agent configuration (excluding sensitive or complex fields)."""
     
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
         rprint("\n[bold]Current Configuration:[/bold]")
@@ -563,7 +555,10 @@ class ConfigCommand(Command):
         return True
 
 class DbCommand(Command):
-    """Command to manage and audit the database."""
+    """
+    Command to manage and audit the vector database.
+    Supports sub-commands like status, audit, search, and search-view.
+    """
     
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
         parts = args.split()
@@ -763,7 +758,7 @@ class DbCommand(Command):
 
 
 class HelpCommand(Command):
-    """Command to show help information."""
+    """Command to display help information for general commands, database, or provider settings."""
     
     def execute(self, args: str, agent: 'LearningAgent') -> bool:
         if args.lower() == "db" or args.lower() == "database":
@@ -855,7 +850,12 @@ Switching between model providers:
 #                              Learning Agent                                 #
 # --------------------------------------------------------------------------- #
 class LearningAgent:
-    """Main agent class that coordinates all components."""
+    """
+    The main class for the Learning Agent.
+    It initializes and coordinates all components including configuration,
+    LLM, vector database, retrieval services, web search, memory, and commands.
+    It also contains the main chat loop.
+    """
     
     def __init__(self):
         # Load configuration
@@ -1048,18 +1048,22 @@ class LearningAgent:
             return f"I encountered an error: {error_msg}"
     
     def run(self):
-        """Run the chat loop."""
-        print("\n✨ Initializing LearningAgent...\n")
+        """Runs the main chat loop for the Learning Agent."""
+        # Initial greeting messages
+        # Using rprint for consistency with other console outputs
+        rprint("\n[bold green]✨ Initializing LearningAgent...[/bold green]") 
         rprint("\n[bold cyan]💬 LearningAgent ready! Type a question or use ':help' for commands.[/bold cyan]\n")
         
         while True:
             try:
-                user_input = input("> ")
+                user_input = input("> ").strip() # Added strip() here for consistency
             except (KeyboardInterrupt, EOFError):
-                rprint("\n[bold]Goodbye! 👋[/bold]")
-                break
+                # User initiated exit (Ctrl+C or Ctrl+D)
+                # The ExitCommand now handles printing the goodbye message.
+                # Simply break the loop.
+                break 
             
-            if not user_input.strip():
+            if not user_input: # Check if input is empty after strip
                 continue
             
             # Process commands (starting with :)
@@ -1077,80 +1081,164 @@ class LearningAgent:
             rprint("[cyan]🔍 Thinking...[/cyan]")
             response = self.generate_response(user_input)
             
-            # Display the response with markdown/LaTeX rendering if enabled
+            # Display the response with markdown and LaTeX rendering if enabled
             if self.config.get("use_markdown_rendering", True):
                 try:
-                    from rich.markdown import Markdown
-                    from rich.console import Console
-                    from rich.panel import Panel
+                    from rich.markdown import Markdown # Moved import here, only needed if rendering
+                    from rich.console import Console # Moved import here
+                    from rich.panel import Panel # Moved import here
                     
-                    # Process LaTeX if enabled
-                    if self.config.get("use_latex_rendering", True):
-                        import re
+                    # LaTeX processing block
+                    if self.config.get("enable_latex_processing", True):
+                        import re # Moved import here, only needed for LaTeX
                         
-                        # Replace inline LaTeX with rich formatting
-                        # Find all \( ... \) patterns for inline math
-                        inline_pattern = r'\\\((.+?)\\\)'
-                        response = re.sub(inline_pattern, r'*\\(\1\\)*', response)
-                        
-                        # Find all \[ ... \] patterns for display math
-                        display_pattern = r'\\\[(.+?)\\\]'
-                        response = re.sub(display_pattern, r'\n\n**\\[\1\\]**\n\n', response)
-                        
-                        # Improve rendering of special math notations
-                        # Handle \mathbb{} notation
-                        mathbb_pattern = r'\\mathbb\{([^}]+)\}'
-                        response = re.sub(mathbb_pattern, r'𝔻\1', response)
-                        
-                        # Handle \mathcal{} notation
-                        mathcal_pattern = r'\\mathcal\{([^}]+)\}'
-                        response = re.sub(mathcal_pattern, r'𝓒\1', response)
-                        
-                        # Handle subscripts (_{})
-                        subscript_pattern = r'_\{([^}]+)\}'
-                        response = re.sub(subscript_pattern, lambda m: ''.join(['_' + c for c in m.group(1)]), response)
-                        
-                        # Handle superscripts (^{})
-                        superscript_pattern = r'\^\{([^}]+)\}'
-                        response = re.sub(superscript_pattern, lambda m: ''.join(['^' + c for c in m.group(1)]), response)
-                        
-                        # Handle common math symbols
-                        response = response.replace('\\infty', '∞')
-                        response = response.replace('\\pi', 'π')
-                        response = response.replace('\\theta', 'θ')
-                        response = response.replace('\\alpha', 'α')
-                        response = response.replace('\\beta', 'β')
-                        response = response.replace('\\gamma', 'γ')
-                        response = response.replace('\\delta', 'δ')
-                        response = response.replace('\\epsilon', 'ε')
-                        response = response.replace('\\lambda', 'λ')
-                        response = response.replace('\\sigma', 'σ')
-                        response = response.replace('\\sum', '∑')
-                        response = response.replace('\\prod', '∏')
-                        response = response.replace('\\int', '∫')
-                        response = response.replace('\\partial', '∂')
-                        response = response.replace('\\nabla', '∇')
-                        response = response.replace('\\times', '×')
-                        response = response.replace('\\cdot', '·')
-                        response = response.replace('\\approx', '≈')
-                        response = response.replace('\\neq', '≠')
-                        response = response.replace('\\leq', '≤')
-                        response = response.replace('\\geq', '≥')
-                        response = response.replace('\\subset', '⊂')
-                        response = response.replace('\\supset', '⊃')
-                        response = response.replace('\\cup', '∪')
-                        response = response.replace('\\cap', '∩')
-                        response = response.replace('\\in', '∈')
-                        response = response.replace('\\notin', '∉')
-                        response = response.replace('\\forall', '∀')
-                        response = response.replace('\\exists', '∃')
-                        response = response.replace('\\rightarrow', '→')
-                        response = response.replace('\\leftarrow', '←')
-                        response = response.replace('\\Rightarrow', '⇒')
-                        response = response.replace('\\Leftarrow', '⇐')
-                        response = response.replace('\\leftrightarrow', '↔')
-                        response = response.replace('\\Leftrightarrow', '⇔')
-                
+                        if self.config.get("use_advanced_latex_rendering", True):
+                            # This block contains numerous regex substitutions for LaTeX to text/markup.
+                            # Order of substitutions is crucial for correctness.
+                            
+                            # 1. Complex Block Environments (e.g., matrices) & Display Style
+                            response = re.sub(r'\\begin\{(matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array)\}[\s\S]*?\end\{\1\}', r'[matrix representation]', response, flags=re.DOTALL) # Clarified placeholder
+                            response = re.sub(r'\\displaystyle', '', response) # Remove display style command
+
+                            # 2. Fractions, Binomials
+                            response = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'(\1/\2)', response) # Simpler fraction
+                            response = re.sub(r'\\binom\{([^}]+)\}\{([^}]+)\}', r'C(\1, \2)', response) # Binomial coefficient
+
+                            # 3. Radicals
+                            response = re.sub(r'\\sqrt\[([^]]+)\]\{([^}]+)\}', r'\1th_root(\2)', response) # nth root
+                            response = re.sub(r'\\sqrt\{([^}]+)\}', r'sqrt(\2)', response) # Square root - corrected group index
+
+                            # 4. Accents
+                            response = re.sub(r'\\hat\{([a-zA-Z0-9])\}', r'\1'+'\u0302', response)  # Combining circumflex
+                            response = re.sub(r'\\bar\{([a-zA-Z0-9])\}', r'\1'+'\u0304', response)  # Combining macron
+                            response = re.sub(r'\\tilde\{([a-zA-Z0-9])\}', r'\1'+'\u0303', response) # Combining tilde
+                            response = re.sub(r'\\vec\{([a-zA-Z0-9])\}', r'\1'+'\u20D7', response) # Combining right arrow above
+                            response = re.sub(r'\\dot\{([a-zA-Z0-9])\}', r'\1'+'\u0307', response)  # Combining dot above
+                            response = re.sub(r'\\ddot\{([a-zA-Z0-9])\}', r'\1'+'\u0308', response) # Combining diaeresis
+
+                            # 5. Subscripts & Superscripts (using Rich tags for better rendering)
+                            # Process multi-character sub/sup first
+                            response = re.sub(r'_\{([^}]+)\}', r'[sub]\1[/sub]', response) 
+                            response = re.sub(r'\^\{([^}]+)\}', r'[sup]\1[/sup]', response)
+                            # Process single character sub/sup (avoiding interference with escaped chars or other commands)
+                            response = re.sub(r'(?<![a-zA-Z0-9\\])_([a-zA-Z0-9])', r'[sub]\1[/sub]', response)
+                            response = re.sub(r'(?<![a-zA-Z0-9\\])\^([a-zA-Z0-9])', r'[sup]\1[/sup]', response)
+                            
+                            # 6. Font Styles (textual representation)
+                            response = re.sub(r'\\mathrm\{([^}]+)\}', r'\1', response) # Roman
+                            response = re.sub(r'\\mathbf\{([^}]+)\}', r'[b]\1[/b]', response) # Bold
+                            response = re.sub(r'\\textit\{([^}]+)\}', r'[i]\1[/i]', response) # Italic
+                            response = re.sub(r'\\texttt\{([^}]+)\}', r'[code]\1[/code]', response) # Monospace/code
+
+                            # 7. Set Notation (mathbb) - Common Unicode symbols
+                            response = re.sub(r'\\mathbb\{R\}', 'ℝ', response) # Real numbers
+                            response = re.sub(r'\\mathbb\{Z\}', 'ℤ', response) # Integers
+                            response = re.sub(r'\\mathbb\{N\}', 'ℕ', response) # Natural numbers
+                            response = re.sub(r'\\mathbb\{Q\}', 'ℚ', response) # Rational numbers
+                            response = re.sub(r'\\mathbb\{C\}', 'ℂ', response) # Complex numbers
+                            response = re.sub(r'\\mathbb\{([a-zA-Z])\}', r'\1', response) # Fallback for other mathbb (plain char)
+
+                            # 8. Calligraphic Notation (mathcal) - Textual representation
+                            response = re.sub(r'\\mathcal\{([A-Z])\}', r'\1', response) # Uppercasemathcal to plain char for simplicity
+
+                            # 9. Common Functions (remove backslash, ensure word boundary)
+                            funcs = ['sin', 'cos', 'tan', 'csc', 'sec', 'cot', 'sinh', 'cosh', 'tanh',
+                                     'log', 'ln', 'lim', 'liminf', 'limsup', 'exp', 'det', 'dim', 
+                                     'min', 'max', 'sup', 'inf', 'arg', 'deg', 'gcd', 'lcm', 'ker', 'mod']
+                            for func_name in funcs:
+                                response = re.sub(r'\\' + func_name + r'(?!\w)', func_name, response)
+
+                            # 10. Greek Letters & Common Math Symbols (Unicode)
+                            response = response.replace('\\infty', '∞')
+                            response = response.replace('\\pi', 'π')
+                            response = response.replace('\\theta', 'θ') # Lowercase theta
+                            response = response.replace('\\Theta', 'Θ') # Uppercase Theta
+                            response = response.replace('\\alpha', 'α')
+                            response = response.replace('\\beta', 'β')
+                            response = response.replace('\\gamma', 'γ')
+                            response = response.replace('\\Gamma', 'Γ') # Uppercase Gamma
+                            response = response.replace('\\delta', 'δ')
+                            response = response.replace('\\Delta', 'Δ') # Uppercase Delta
+                            response = response.replace('\\epsilon', 'ε')
+                            response = response.replace('\\varepsilon', 'ɛ')
+                            response = response.replace('\\zeta', 'ζ')
+                            response = response.replace('\\eta', 'η')
+                            response = response.replace('\\iota', 'ι')
+                            response = response.replace('\\kappa', 'κ')
+                            response = response.replace('\\lambda', 'λ')
+                            response = response.replace('\\Lambda', 'Λ') # Uppercase Lambda
+                            response = response.replace('\\mu', 'μ')
+                            response = response.replace('\\nu', 'ν')
+                            response = response.replace('\\xi', 'ξ')
+                            response = response.replace('\\Xi', 'Ξ') # Uppercase Xi
+                            response = response.replace('\\rho', 'ρ')
+                            response = response.replace('\\sigma', 'σ')
+                            response = response.replace('\\Sigma', 'Σ') # Uppercase Sigma
+                            response = response.replace('\\tau', 'τ')
+                            response = response.replace('\\upsilon', 'υ')
+                            response = response.replace('\\Upsilon', 'Υ') # Uppercase Upsilon
+                            response = response.replace('\\phi', 'φ')
+                            response = response.replace('\\Phi', 'Φ') # Uppercase Phi
+                            response = response.replace('\\varphi', 'ϕ')
+                            response = response.replace('\\chi', 'χ')
+                            response = response.replace('\\psi', 'ψ')
+                            response = response.replace('\\Psi', 'Ψ') # Uppercase Psi
+                            response = response.replace('\\omega', 'ω')
+                            response = response.replace('\\Omega', 'Ω') # Uppercase Omega
+                            
+                            response = response.replace('\\sum', '∑')
+                            response = response.replace('\\prod', '∏')
+                            response = response.replace('\\int', '∫')
+                            response = response.replace('\\partial', '∂')
+                            response = response.replace('\\nabla', '∇')
+                            response = response.replace('\\pm', '±')
+                            response = response.replace('\\times', '×')
+                            response = response.replace('\\cdot', '·')
+                            response = response.replace('\\approx', '≈')
+                            response = response.replace('\\neq', '≠')
+                            response = response.replace('\\leq', '≤')
+                            response = response.replace('\\geq', '≥')
+                            response = response.replace('\\ll', '≪')
+                            response = response.replace('\\gg', '≫')
+                            response = response.replace('\\subset', '⊂')
+                            response = response.replace('\\supset', '⊃')
+                            response = response.replace('\\subseteq', '⊆')
+                            response = response.replace('\\supseteq', '⊇')
+                            response = response.replace('\\in', '∈')
+                            response = response.replace('\\notin', '∉')
+                            response = response.replace('\\ni', '∋')
+                            response = response.replace('\\leftarrow', '←')
+                            response = response.replace('\\rightarrow', '→')
+                            response = response.replace('\\leftrightarrow', '↔')
+                            response = response.replace('\\Leftarrow', '⇐')
+                            response = response.replace('\\Rightarrow', '⇒')
+                            response = response.replace('\\Leftrightarrow', '⇔')
+                            response = response.replace('\\uparrow', '↑')
+                            response = response.replace('\\downarrow', '↓')
+                            response = response.replace('\\updownarrow', '↕')
+                            response = response.replace('\\forall', '∀')
+                            response = response.replace('\\exists', '∃')
+                            response = response.replace('\\emptyset', '∅')
+                            response = response.replace('\\ldots', '...')
+                            response = response.replace('\\cdots', '⋯')
+                            response = response.replace('\\vdots', '⋮')
+                            response = response.replace('\\ddots', '⋱')
+                            response = response.replace('\\angle', '∠')
+                            response = response.replace('\\hbar', 'ħ')
+                            response = response.replace('\\degree', '°')
+                            response = response.replace('\\prime', '′')
+                            response = response.replace('\\{', '{') # Unescape escaped braces
+                            response = response.replace('\\}', '}')
+                            response = response.replace('\\%', '%')
+                            response = response.replace('\\&', '&')
+                            response = response.replace('\\#', '#')
+                            response = response.replace('\\_', '_')
+
+                        # 10. Inline Math Delimiters \(...\) and Display Math \[...\] (Rich Markdown emphasis)
+                        # These should be applied after other LaTeX commands are processed.
+                        response = re.sub(r'\\\((.+?)\\\)', r'[i] \1 [/i]', response) # Italic and math symbol for inline
+                        response = re.sub(r'\\\[(.+?)\\\]', r'\n\n[b]\[ \1 \]\[/b]\n\n', response) # Bold for display math
+
                     # Create a console for rich output
                     console = Console()
                     
