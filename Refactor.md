@@ -15,7 +15,8 @@
   - Limited error visibility and debugging capabilities
   - Complex command handling mixed with business logic
   - No structured logging or metrics
-  - Simple RAG pipeline (no advanced features like reranking, citations, layout-aware processing)
+  - Simple RAG pipeline with Qdrant (no advanced features like reranking, citations, layout-aware processing)
+  - **Migration needed**: Qdrant → RAGFlow for superior document processing and retrieval
 
 ---
 
@@ -29,11 +30,12 @@ src/
 │   ├── __init__.py
 │   ├── agent.py              # Simplified main agent class
 │   └── config.py             # Enhanced configuration management
-├── rag/                      # RAG pipeline (top-level)
+├── rag/                      # RAG pipeline (top-level) - RAGFlow integration
 │   ├── __init__.py
 │   ├── retrieval/
 │   │   ├── __init__.py
-│   │   ├── retrievers.py     # RAGFlow & Qdrant retrievers
+│   │   ├── ragflow_client.py # RAGFlow API client and retriever
+│   │   ├── qdrant_legacy.py  # Legacy Qdrant support (migration fallback)
 │   │   ├── reranking.py      # Document reranking strategies
 │   │   ├── hybrid.py         # Hybrid retrieval (semantic + keyword)
 │   │   └── citations.py     # Citation extraction and formatting
@@ -42,13 +44,15 @@ src/
 │   │   ├── documents.py      # Document preprocessing pipeline
 │   │   ├── chunking.py       # Advanced chunking strategies
 │   │   ├── markdown.py       # Markdown document processing
-│   │   └── layout_aware.py   # OCR, tables, figures (future RAGFlow)
-│   ├── pipeline.py           # RAG orchestration and factory
+│   │   └── layout_aware.py   # OCR, tables, figures (RAGFlow integration)
+│   ├── pipeline.py           # RAG orchestration - RAGFlow primary
+│   ├── migration.py          # Qdrant → RAGFlow data migration
 │   └── evaluation.py         # RAG performance metrics
 ├── services/
 │   ├── __init__.py
 │   ├── llm_service.py        # LLM factory and management
-│   ├── vector_service.py     # Vector database operations
+│   ├── vector_service.py     # Legacy Qdrant operations (migration support)
+│   ├── ragflow_service.py    # RAGFlow Docker management and health checks
 │   └── memory_service.py     # Chat memory management
 ├── text_processing/
 │   ├── __init__.py
@@ -82,28 +86,65 @@ src/
 
 ### Phase 1: Foundation & Modularity (High Priority)
 
-#### Task 1.1: Create Project Structure
+#### Task 1.1: Create Project Structure & Migration Setup
 - [ ] Create `src/` directory structure
 - [ ] Create all necessary `__init__.py` files
 - [ ] Move existing utility files to appropriate locations:
   - `config_utils.py` → `src/core/config.py`
-  - `qdrant_utils.py` → `src/services/vector_service.py`
+  - `qdrant_utils.py` → `src/services/vector_service.py` (legacy support)
+- [ ] Set up RAGFlow Docker infrastructure:
+  - [ ] Create `docker-compose.ragflow.yml`
+  - [ ] Add RAGFlow environment variables to `.env.sample`
+  - [ ] Add Makefile targets for RAGFlow management
 
-#### Task 1.2: Extract RAG Pipeline (Critical)
+#### Task 1.2: Extract RAG Pipeline & RAGFlow Integration (Critical)
 - [ ] Create `src/rag/` directory structure
   - [ ] Create all necessary `__init__.py` files
   - [ ] Move existing RAG logic from `learning_agent.py`
 
+- [ ] Create `src/rag/retrieval/ragflow_client.py`
+  - [ ] Implement RAGFlow API client with full feature support
+  - [ ] Create RAGFlowRetriever class with LangChain compatibility
+  - [ ] Add knowledge base management methods
+  - [ ] Include automatic citation extraction and granular source tracking
+  - [ ] Implement hybrid retrieval (semantic + keyword fusion)
+  - [ ] Add reranking capabilities with model-based reranking
+
+- [ ] Create `src/rag/retrieval/graphrag.py`
+  - [ ] Implement GraphRAG integration for knowledge graph-enhanced retrieval
+  - [ ] Add entity-relationship extraction and N-hop traversal
+  - [ ] Include community detection and PageRank-based relevance scoring
+  - [ ] Support multi-hop reasoning for complex queries
+
+- [ ] Create `src/rag/retrieval/raptor.py`
+  - [ ] Implement RAPTOR (Recursive Abstractive Processing) for hierarchical summarization
+  - [ ] Add clustering-based optimal chunking with UMAP and Gaussian Mixture Models
+  - [ ] Support multi-level abstraction and tree-structured organization
+
 - [ ] Create `src/rag/pipeline.py`
   - [ ] Extract `RetrievalService` class and rename to `RAGPipeline`
-  - [ ] Implement retriever factory pattern (RAGFlow vs Qdrant)
-  - [ ] Add support for different retrieval strategies
-  - [ ] Include comprehensive logging and metrics
+  - [ ] Set RAGFlow as the sole retriever (no Qdrant fallback)
+  - [ ] Integrate GraphRAG and RAPTOR techniques
+  - [ ] Include comprehensive logging and metrics for all advanced features
+
+- [ ] Create `src/rag/migration.py`
+  - [ ] Export existing Qdrant data to RAGFlow-compatible format
+  - [ ] Batch document upload to RAGFlow knowledge base with layout awareness
+  - [ ] Validation tools comparing old vs new retrieval quality
 
 - [ ] Create `src/rag/processing/documents.py`
   - [ ] Extract document preprocessing logic
-  - [ ] Support for markdown documents
-  - [ ] Chunking strategies and text cleaning
+  - [ ] Support for markdown documents (RAGFlow native)
+  - [ ] Integration with RAGFlow's DeepDoc for layout-aware processing
+  - [ ] OCR capabilities for image-based documents
+  - [ ] Table Structure Recognition (TSR) for complex tables
+  - [ ] Figure and caption extraction with embedded text analysis
+
+- [ ] Create `src/rag/processing/layout_aware.py`
+  - [ ] Implement layout component recognition (Text, Title, Figure, Table, etc.)
+  - [ ] Advanced table parsing with hierarchy headers and spanning cells
+  - [ ] Figure-caption relationship mapping
+  - [ ] Multi-format optimization (PDF, DOCX, Excel, PPT)
 
 #### Task 1.3: Extract Text Rendering (Critical for UX)
 - [ ] Create `src/text_processing/latex_renderer.py`
@@ -124,22 +165,28 @@ src/
     - `render_panel(text: str, title: str) -> None`
   - [ ] Handle ImportError fallbacks gracefully
 
-#### Task 1.4: Extract Service Layer
+#### Task 1.4: Extract Service Layer & RAGFlow Services
 - [ ] Create `src/services/llm_service.py`
   - [ ] Move `LLMFactory` class
   - [ ] Add connection health monitoring
   - [ ] Implement retry logic with exponential backoff
   - [ ] Add structured logging for provider switches
 
+- [ ] Create `src/services/ragflow_service.py`
+  - [ ] RAGFlow Docker container management
+  - [ ] Health checks and service monitoring
+  - [ ] Knowledge base lifecycle management
+  - [ ] Document upload and indexing orchestration
+
 - [ ] Create `src/services/memory_service.py`
   - [ ] Move `ChatMemory` class
   - [ ] Add memory size limits and cleanup
   - [ ] Add conversation export/import functionality
 
-- [ ] Update `src/services/vector_service.py` (from qdrant_utils.py)
-  - [ ] Enhance with health monitoring
-  - [ ] Add connection pooling and retry logic
-  - [ ] Prepare for RAGFlow integration
+- [ ] Remove `qdrant_utils.py` and all Qdrant dependencies
+  - [ ] Create one-time migration script in `tools/migrate_to_ragflow.py`
+  - [ ] Export Qdrant data for final RAGFlow import
+  - [ ] Clean up all Qdrant configuration and code references
 
 ### Phase 2: Simplify Core Agent (Medium Priority)
 
@@ -164,9 +211,9 @@ src/
 - [ ] Create command modules:
   - [ ] `src/ui/commands/system.py` (exit, help, config)
   - [ ] `src/ui/commands/provider.py` (provider switching)
-  - [ ] `src/ui/commands/database.py` (db operations)
   - [ ] `src/ui/commands/memory.py` (memory management)
-  - [ ] `src/ui/commands/rag.py` (RAG pipeline management, retriever switching)
+  - [ ] `src/ui/commands/rag.py` (RAGFlow operations, GraphRAG controls, RAPTOR configuration)
+  - [ ] `src/ui/commands/knowledge.py` (knowledge base management, document processing, layout analysis)
 
 ### Phase 3: Add Observability (High Priority)
 
@@ -176,33 +223,43 @@ src/
   - [ ] Define log levels and categories:
     - `agent.startup`, `agent.query`, `agent.error`
     - `llm.switch`, `llm.request`, `llm.error`
-    - `vector.query`, `vector.health`, `vector.error`
-    - `rag.retrieval`, `rag.reranking`, `rag.citations`
+    - `ragflow.startup`, `ragflow.query`, `ragflow.health`, `ragflow.error`
+    - `rag.retrieval`, `rag.reranking`, `rag.citations`, `rag.graphrag`, `rag.raptor`
+    - `layout.ocr`, `layout.table_recognition`, `layout.figure_extraction`
+    - `knowledge.upload`, `knowledge.processing`, `knowledge.indexing`
   - [ ] Add correlation IDs for request tracking
   - [ ] Include performance timing
 
 #### Task 3.2: Add Performance Metrics
 - [ ] Create `src/observability/metrics.py`
   - [ ] Track key metrics:
-    - Response generation time
-    - RAG retrieval success/failure rates (by retriever type)
-    - Citation accuracy and coverage
-    - Document reranking effectiveness
+    - Response generation time and quality scores
+    - RAGFlow retrieval success/failure rates
+    - Citation accuracy and coverage (RAGFlow automatic citations)
+    - Document reranking effectiveness and precision improvements
+    - GraphRAG entity extraction and relationship mapping accuracy
+    - RAPTOR hierarchical summarization performance
+    - Layout-aware processing success rates (OCR, TSR, figure extraction)
+    - Knowledge base indexing and query performance
     - LLM provider switching events
-    - Vector database query performance
-    - Memory usage patterns
-    - Command usage statistics
-    - LaTeX rendering performance
+    - RAGFlow service health and Docker container performance
+    - Memory usage patterns and optimization metrics
+    - Command usage statistics and user workflow patterns
+    - LaTeX rendering performance and accuracy
+    - Advanced retrieval technique effectiveness (hybrid, semantic+keyword fusion)
   - [ ] Export metrics in structured format
 
 #### Task 3.3: Implement Health Monitoring
 - [ ] Create `src/observability/health.py`
   - [ ] Add health check endpoints for all services:
-    - LLM provider connectivity
-    - Vector database status (Qdrant)
-    - RAGFlow service status (when integrated)
-    - Memory service status
-    - LaTeX rendering capability
+    - LLM provider connectivity and response quality
+    - RAGFlow service status and Docker container health
+    - RAGFlow knowledge base accessibility and indexing status
+    - GraphRAG entity graph connectivity and traversal capability
+    - RAPTOR hierarchical processing pipeline status
+    - DeepDoc layout processing (OCR, TSR, figure extraction) capability
+    - Memory service status and conversation persistence
+    - LaTeX rendering capability and math expression accuracy
   - [ ] Implement service degradation detection
   - [ ] Add automatic service recovery attempts
 
@@ -255,32 +312,38 @@ src/
 
 ### Step-by-Step Migration Plan
 
-1. **Week 1**: Foundation (Tasks 1.1-1.3)
-   - Create directory structure
-   - Extract RAG pipeline (immediate impact)
+1. **Week 1**: Foundation & RAGFlow Setup (Tasks 1.1-1.3)
+   - Create directory structure with advanced RAG components
+   - Set up RAGFlow Docker infrastructure with GPU support
+   - Extract RAG pipeline with RAGFlow, GraphRAG, and RAPTOR integration
    - Extract LaTeX renderer (immediate UX improvement)
-   - Extract markdown renderer
+   - Extract markdown renderer and layout-aware processing
 
-2. **Week 2**: Service Extraction (Tasks 1.4, 3.1)
+2. **Week 2**: Advanced RAG Implementation (Tasks 1.4, 3.1)
    - Extract LLM and memory services
-   - Enhance vector service
-   - Implement basic structured logging
-   - Update imports in main file
+   - Create RAGFlow service layer with DeepDoc integration
+   - Implement GraphRAG for knowledge graph-enhanced retrieval
+   - Implement RAPTOR for hierarchical document processing
+   - Implement basic structured logging for all advanced features
 
-3. **Week 3**: Core Simplification (Tasks 2.1-2.2)
-   - Simplify main agent class
-   - Extract command system
-   - Create new entry point
+3. **Week 3**: Migration & Core Simplification (Tasks 2.1-2.2)
+   - Complete Qdrant → RAGFlow data migration (one-time)
+   - Simplify main agent class to use RAGFlow exclusively
+   - Extract command system with GraphRAG and RAPTOR controls
+   - Remove all Qdrant dependencies and clean up codebase
+   - Create new entry point with advanced RAG capabilities
 
-4. **Week 4**: Observability (Tasks 3.2-3.3)
-   - Add metrics collection
-   - Implement health monitoring
-   - Performance optimization
+4. **Week 4**: Observability & Advanced Features (Tasks 3.2-3.3)
+   - Add comprehensive metrics for GraphRAG, RAPTOR, and layout processing
+   - Implement health monitoring for all RAGFlow services
+   - Performance optimization and tuning for advanced retrieval
+   - Add citation tracking and layout analysis monitoring
 
-5. **Week 5**: Polish (Tasks 4.1-4.2)
-   - Add type hints
-   - Enhance configuration
-   - Error handling improvements
+5. **Week 5**: Polish & Advanced Documentation (Tasks 4.1-4.2)
+   - Add type hints for all new RAG components
+   - Enhance configuration for GraphRAG and RAPTOR
+   - Error handling improvements for complex pipelines
+   - Update documentation with advanced RAG techniques and examples
 
 ### Validation Criteria
 
@@ -334,16 +397,22 @@ Each task must meet these criteria before being considered complete:
 
 ### Minimal External Impact
 - Main entry point remains `python learning_agent.py`
-- Configuration file format unchanged (with additions for RAG settings)
-- All existing commands continue to work
-- User experience enhanced (better LaTeX/math display)
-- RAG functionality improved (better retrieval, future citations)
+- Configuration file format enhanced (RAGFlow, GraphRAG, RAPTOR settings added)
+- All existing commands continue to work (significantly enhanced with advanced RAG features)
+- User experience dramatically improved:
+  - Better LaTeX/math display with enhanced rendering
+  - Automatic granular citations with precise source tracking
+  - Layout-aware document understanding (tables, figures, equations)
+  - Multi-hop reasoning through knowledge graphs
+  - Hierarchical document summarization and retrieval
 
-### Internal Changes Only
+### Internal Changes Only  
 - Import paths will change (internal only)
-- Module organization restructured
-- Logging format enhanced (additional data)
-- Error messages improved (more helpful)
+- Module organization restructured for advanced RAG techniques
+- Logging format enhanced (GraphRAG, RAPTOR, layout processing data)
+- Error messages improved (more helpful, context-aware)
+- Vector storage backend: Complete migration from Qdrant → RAGFlow
+- Advanced retrieval pipeline: Simple vector search → Sophisticated multi-modal RAG
 
 ---
 
@@ -355,10 +424,10 @@ Each task must meet these criteria before being considered complete:
    - Rollback: Keep original code as fallback
    - Special focus: Ensure beautiful math display for user experience
 
-2. **RAG Pipeline Refactor**: Breaking existing retrieval logic
-   - Mitigation: Gradual migration with retriever factory pattern
-   - Rollback: Maintain backward compatibility with current RAG
-   - Future-proofing: Design for RAGFlow integration
+2. **Qdrant → RAGFlow Migration**: Data loss or retrieval quality degradation
+   - Mitigation: Comprehensive data export/validation before migration
+   - Rollback: Maintain Qdrant as fallback during migration period
+   - Validation: Side-by-side comparison of retrieval results
 
 3. **LLM Service Changes**: Provider switching logic
    - Mitigation: Gradual migration with feature flags
