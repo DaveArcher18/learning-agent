@@ -11,6 +11,7 @@ This script:
 
 import os
 import sys
+from typing import Optional
 # import yaml # No longer used directly
 # QdrantClient is now imported in qdrant_utils
 # from qdrant_client import QdrantClient

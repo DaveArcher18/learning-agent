@@ -37,7 +37,7 @@ from langchain_core.language_models import BaseChatModel
 # Vector store and embeddings
 import fastembed
 # QdrantClient is now imported in qdrant_utils
-# from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient
 from qdrant_client import models as qmodels
 from langchain_qdrant import QdrantVectorStore
 from qdrant_utils import connect_to_qdrant # Import the new utility
@@ -1097,7 +1097,7 @@ class LearningAgent:
                             # Order of substitutions is crucial for correctness.
                             
                             # 1. Complex Block Environments (e.g., matrices) & Display Style
-                            response = re.sub(r'\\begin\{(matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array)\}[\s\S]*?\end\{\1\}', r'[matrix representation]', response, flags=re.DOTALL) # Clarified placeholder
+                            response = re.sub(r'\\begin\{(matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array)\}[\s\S]*?\\end\{\1\}', r'[matrix representation]', response, flags=re.DOTALL) # Clarified placeholder
                             response = re.sub(r'\\displaystyle', '', response) # Remove display style command
 
                             # 2. Fractions, Binomials
@@ -1106,7 +1106,7 @@ class LearningAgent:
 
                             # 3. Radicals
                             response = re.sub(r'\\sqrt\[([^]]+)\]\{([^}]+)\}', r'\1th_root(\2)', response) # nth root
-                            response = re.sub(r'\\sqrt\{([^}]+)\}', r'sqrt(\2)', response) # Square root - corrected group index
+                            response = re.sub(r'\\sqrt\{([^}]+)\}', r'sqrt(\1)', response) # Square root - corrected group index
 
                             # 4. Accents
                             response = re.sub(r'\\hat\{([a-zA-Z0-9])\}', r'\1'+'\u0302', response)  # Combining circumflex
