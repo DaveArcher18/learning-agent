@@ -103,42 +103,60 @@ src/
   - [ ] Move existing RAG logic from `learning_agent.py`
 
 - [ ] Create `src/rag/retrieval/ragflow_client.py`
-  - [ ] Implement RAGFlow API client with full feature support
-  - [ ] Create RAGFlowRetriever class with LangChain compatibility
-  - [ ] Add knowledge base management methods
-  - [ ] Include automatic citation extraction and granular source tracking
-  - [ ] Implement hybrid retrieval (semantic + keyword fusion)
-  - [ ] Add reranking capabilities with model-based reranking
+  - [ ] Implement RAGFlow API client with BGE-M3 embedding model integration
+  - [ ] Create RAGFlowRetriever class with BGE-M3 multi-functionality support
+  - [ ] Add knowledge base management methods optimized for mathematical content
+  - [ ] Include automatic citation extraction with sentence-level granular source tracking
+  - [ ] Implement BGE-M3 ensemble retrieval (dense + sparse + ColBERT multi-vector)
+  - [ ] Add multi-stage reranking with mathematical content prioritization
+  - [ ] Small dataset optimization: 40% chunk overlap, 1000-token chunks, exhaustive processing
 
 - [ ] Create `src/rag/retrieval/graphrag.py`
   - [ ] Implement GraphRAG integration for knowledge graph-enhanced retrieval
-  - [ ] Add entity-relationship extraction and N-hop traversal
-  - [ ] Include community detection and PageRank-based relevance scoring
-  - [ ] Support multi-hop reasoning for complex queries
+  - [ ] Add exhaustive entity-relationship extraction and N-hop traversal (up to 4 hops)
+  - [ ] Include high-resolution community detection and PageRank-based relevance scoring
+  - [ ] Support multi-hop reasoning for complex queries with deep relationship exploration
+  - [ ] Optimize for small datasets: comprehensive entity linking, detailed relationship typing
 
 - [ ] Create `src/rag/retrieval/raptor.py`
-  - [ ] Implement RAPTOR (Recursive Abstractive Processing) for hierarchical summarization
-  - [ ] Add clustering-based optimal chunking with UMAP and Gaussian Mixture Models
-  - [ ] Support multi-level abstraction and tree-structured organization
+  - [ ] Implement RAPTOR for mathematical content hierarchical organization
+  - [ ] BGE-M3 optimized clustering with mathematical concept grouping
+  - [ ] Support 6-level abstraction trees: theorem→proof→lemma→definition→example→application
+  - [ ] Quality-first configuration: mathematical concept preservation, theorem dependency tracking
+  - [ ] Pre-build complete hierarchical trees for <10K pages (batch processing approach)
+  - [ ] Mathematical notation aware summarization with LaTeX preservation
 
 - [ ] Create `src/rag/pipeline.py`
-  - [ ] Extract `RetrievalService` class and rename to `RAGPipeline`
-  - [ ] Set RAGFlow as the sole retriever (no Qdrant fallback)
-  - [ ] Integrate GraphRAG and RAPTOR techniques
-  - [ ] Include comprehensive logging and metrics for all advanced features
+  - [ ] Extract `RetrievalService` class and rename to `MathematicalRAGPipeline`
+  - [ ] Set RAGFlow with BGE-M3 as the sole retriever (M1 optimized, no Qdrant fallback)
+  - [ ] Integrate GraphRAG (mathematical concept mapping) and RAPTOR (theorem hierarchies)
+  - [ ] Implement BGE-M3 multi-vector retrieval: dense + sparse + ColBERT reranking
+  - [ ] Target 5-10 second response times with quality-first batch preprocessing
+  - [ ] Include comprehensive logging and metrics for mathematical content analysis
 
 - [ ] Create `src/rag/migration.py`
-  - [ ] Export existing Qdrant data to RAGFlow-compatible format
-  - [ ] Batch document upload to RAGFlow knowledge base with layout awareness
-  - [ ] Validation tools comparing old vs new retrieval quality
+  - [ ] Export existing Qdrant data to BGE-M3 compatible format for RAGFlow
+  - [ ] Batch document upload to RAGFlow knowledge base with mathematical notation preservation
+  - [ ] Validation tools comparing old vs new retrieval quality with mathematical accuracy metrics
+
+- [ ] Create `src/rag/models/bge_m3_config.py`
+  - [ ] BGE-M3 model configuration optimized for M1 MacBook Air (16GB RAM)
+  - [ ] CPU-only inference settings with optimal batch sizes for mathematical content
+  - [ ] Multi-vector configuration: dense embeddings (512 dim) + sparse retrieval + ColBERT reranking
+  - [ ] Token limit optimization (8192 tokens) for complete mathematical proofs and theorems
+  - [ ] Mathematical notation and LaTeX expression handling
+  - [ ] Small dataset optimization: aggressive caching, pre-computed embeddings, exhaustive search
 
 - [ ] Create `src/rag/processing/documents.py`
-  - [ ] Extract document preprocessing logic
-  - [ ] Support for markdown documents (RAGFlow native)
-  - [ ] Integration with RAGFlow's DeepDoc for layout-aware processing
-  - [ ] OCR capabilities for image-based documents
-  - [ ] Table Structure Recognition (TSR) for complex tables
-  - [ ] Figure and caption extraction with embedded text analysis
+  - [ ] Extract document preprocessing logic optimized for mathematical content
+  - [ ] Native support for markdown documents from academic papers (LaTeX-derived)
+  - [ ] Integration with RAGFlow's DeepDoc for mathematical notation processing
+  - [ ] Advanced mathematical equation and formula recognition
+  - [ ] Comprehensive Table Structure Recognition for mathematical tables and proofs
+  - [ ] Mathematical figure and diagram extraction with LaTeX expression analysis
+  - [ ] Quality-first chunking: 1000-token chunks with 40% overlap for mathematical context preservation
+  - [ ] Sentence-level citation tracking optimized for academic paper source attribution
+  - [ ] BGE-M3 token limit optimization (up to 8192 tokens) for complete mathematical proofs
 
 - [ ] Create `src/rag/processing/layout_aware.py`
   - [ ] Implement layout component recognition (Text, Title, Figure, Table, etc.)
@@ -308,42 +326,85 @@ src/
 
 ---
 
+## 📐 Mathematical Content Architecture
+
+### BGE-M3 Optimization for Academic Papers
+
+**Hardware Configuration (M1 MacBook Air 16GB)**:
+- CPU-only inference with optimized batch sizes (4-8 documents)
+- Memory-efficient chunking: 1000 tokens with 40% overlap
+- Pre-computed embeddings for <10K pages with aggressive caching
+- Multi-vector retrieval: dense (512 dim) + sparse + ColBERT reranking
+
+**Mathematical Content Pipeline**:
+```
+Academic PDF → Mistral OCR → Markdown → BGE-M3 Processing → RAGFlow Storage
+                                    ↓
+                        Mathematical Notation Preservation
+                                    ↓
+                    LaTeX Expression Recognition & Indexing
+                                    ↓
+                Theorem/Proof/Definition Classification
+                                    ↓
+                    Citation & Source Tracking (Sentence-level)
+```
+
+**Quality-First Retrieval Strategy**:
+1. **Exhaustive Search**: Retrieve top-50 candidates using BGE-M3 multi-vector
+2. **Mathematical Reranking**: Prioritize mathematical content relevance
+3. **Context Preservation**: Ensure theorem dependencies and proof chains intact
+4. **Source Attribution**: Maintain granular citation tracking for verification
+5. **Final Selection**: Return top-15 highest quality, mathematically coherent results
+
+**Target Performance**:
+- Response Time: 5-10 seconds (acceptable for academic research quality)
+- Accuracy: Prioritize mathematical correctness over speed
+- Source Traceability: 100% sentence-level citation accuracy
+- Mathematical Notation: Preserve LaTeX formatting and mathematical symbols
+
+---
+
 ## 🔄 Migration Strategy
 
 ### Step-by-Step Migration Plan
 
-1. **Week 1**: Foundation & RAGFlow Setup (Tasks 1.1-1.3)
-   - Create directory structure with advanced RAG components
-   - Set up RAGFlow Docker infrastructure with GPU support
-   - Extract RAG pipeline with RAGFlow, GraphRAG, and RAPTOR integration
-   - Extract LaTeX renderer (immediate UX improvement)
-   - Extract markdown renderer and layout-aware processing
+1. **Week 1**: Foundation & BGE-M3 Mathematical RAG Setup (Tasks 1.1-1.3)
+   - Create directory structure optimized for mathematical content processing
+   - Set up RAGFlow Docker infrastructure with BGE-M3 integration and M1 CPU optimization
+   - Configure BGE-M3 multi-vector setup: dense + sparse + ColBERT (CPU-only, 16GB RAM)
+   - Extract RAG pipeline with quality-first approach for <10K pages mathematical content
+   - Extract LaTeX renderer (critical for mathematical expression display)
+   - Extract markdown renderer with academic paper formatting support
 
-2. **Week 2**: Advanced RAG Implementation (Tasks 1.4, 3.1)
-   - Extract LLM and memory services
-   - Create RAGFlow service layer with DeepDoc integration
-   - Implement GraphRAG for knowledge graph-enhanced retrieval
-   - Implement RAPTOR for hierarchical document processing
-   - Implement basic structured logging for all advanced features
+2. **Week 2**: BGE-M3 Integration & Mathematical Content Pipeline (Tasks 1.4, 3.1)
+   - Implement BGE-M3 model configuration with mathematical notation handling (8192 tokens)
+   - Extract LLM and memory services optimized for mathematical reasoning (DeepSeek integration)
+   - Implement RAGFlow service layer with mathematical layout processing (equations, proofs, theorems)
+   - Complete Qdrant → RAGFlow migration with BGE-M3 embedding conversion
+   - Set up mathematical content aware GraphRAG (theorem/proof relationship mapping)
+   - Implement RAPTOR hierarchical processing for mathematical concept organization
 
-3. **Week 3**: Migration & Core Simplification (Tasks 2.1-2.2)
-   - Complete Qdrant → RAGFlow data migration (one-time)
-   - Simplify main agent class to use RAGFlow exclusively
-   - Extract command system with GraphRAG and RAPTOR controls
-   - Remove all Qdrant dependencies and clean up codebase
-   - Create new entry point with advanced RAG capabilities
+3. **Week 3**: Quality-First Optimization & Mathematical Pipelines (Tasks 2.1-2.2)
+   - Optimize MathematicalRAGPipeline for 5-10 second response times with batch preprocessing
+   - Extract command system with mathematical knowledge base management
+   - Fine-tune BGE-M3 multi-vector retrieval with 40% chunk overlap for mathematical context
+   - Implement mathematical content validation and granular source tracking for accuracy
+   - Remove all Qdrant dependencies and create one-time migration tools
+   - Create new entry point with mathematical content health checks
 
-4. **Week 4**: Observability & Advanced Features (Tasks 3.2-3.3)
-   - Add comprehensive metrics for GraphRAG, RAPTOR, and layout processing
-   - Implement health monitoring for all RAGFlow services
-   - Performance optimization and tuning for advanced retrieval
-   - Add citation tracking and layout analysis monitoring
+4. **Week 4**: Mathematical Content Observability & M1 Performance Tuning (Tasks 3.2-3.3)
+   - Add mathematical accuracy metrics and citation traceability monitoring
+   - Implement health monitoring for BGE-M3 performance and mathematical notation processing
+   - Performance tuning for M1 hardware: memory optimization, CPU utilization, optimal batch sizing
+   - Quality validation comparing mathematical content retrieval accuracy vs baseline
+   - Add mathematical theorem/proof dependency tracking and reasoning chain validation
 
-5. **Week 5**: Polish & Advanced Documentation (Tasks 4.1-4.2)
-   - Add type hints for all new RAG components
-   - Enhance configuration for GraphRAG and RAPTOR
-   - Error handling improvements for complex pipelines
-   - Update documentation with advanced RAG techniques and examples
+5. **Week 5**: Academic Paper Pipeline & Documentation (Tasks 4.1-4.2)
+   - Finalize academic paper processing pipeline (Mistral OCR → Markdown → BGE-M3 → RAGFlow)
+   - Add comprehensive type hints for all mathematical content processing components
+   - Enhance configuration for mathematical content: theorem hierarchies, proof structures, citation networks
+   - Document mathematical content pipeline and BGE-M3 configuration for academic research use
+   - Create validation tools for mathematical accuracy and source attribution
 
 ### Validation Criteria
 
