@@ -1,42 +1,113 @@
-# LearningAgent Configuration
+# Learning Agent Configuration
+# Primary configuration file - API keys are loaded from .env file
 # Edit this file to adjust behavior without changing code
 
-# Model settings
-model: qwen3:4b  # For Ollama models like "qwen3:4b"
-model_provider: "openrouter"  # Options: "ollama" or "openrouter"
-openrouter_model: "deepseek/deepseek-prover-v2:free"  # Only used when model_provider is "openrouter"
-temperature: 0.3
+# Core application settings
+use_memory: true
+use_web_fallback: true  
+web_results: 3
 
-# Memory settings
-use_memory: true  # Enable/disable conversation memory (storing chat history)
-use_chat_buffer: true  # Enable/disable short-term memory buffer for current session only
-chat_buffer_size: 5  # Maximum number of messages to keep in the short-term buffer
+# LLM Configuration
+llm:
+  model: "deepseek/deepseek-prover-v2:free"  # OpenRouter model
+  model_provider: "openrouter"  # Primary provider: OpenRouter
+  temperature: 0.3
+  max_tokens: null
+  
+  # Provider-specific configurations (API keys loaded from environment)
+  providers:
+    openrouter:
+      base_url: "https://openrouter.ai/api/v1"
+      model: "deepseek/deepseek-prover-v2:free"
+      timeout: 30
 
-# Embedding settings
-embedding_model: BAAI/bge-small-en-v1.5  # Options: BAAI/bge-small-en-v1.5, BAAI/bge-m3, BAAI/bge-large-en-v1.5
-embedding_device: "cpu"  # Device to use for embeddings: "cpu" or "cuda:0" for GPU
-use_fp16: false  # Use half-precision for embeddings (set to false when using CPU)
+# Document Service Configuration (Universal Document Loading)
+documents:
+  path: "data/documents"
+  chunk_size: 4000  # 4000 token chunks as requested
+  chunk_overlap: 500  # 500 token overlap as requested  
+  preserve_boundaries: true
+  
+# Retrieval Configuration (Universal Retrieval for All Queries)
+retrieval:
+  max_chunks: 5
+  enable_fallback: true
+  
+# RAGFlow Configuration (Advanced RAG Pipeline)
+ragflow:
+  host: "localhost"
+  port: 9380
+  docker_service: "ragflow"
+  knowledge_base: "mathematical_kb"
+  enable_citations: true
+  enable_layout_parsing: true
+  api:
+    base_url: "http://localhost:9380"
+    key: ""  # Will be loaded from environment RAGFLOW_API_KEY
 
-# Retrieval settings
-top_k: 8  # Number of documents to retrieve
-similarity_threshold: 0.5  # Minimum similarity score for retrieved documents
+# BGE-M3 Configuration (Mathematical Embeddings)
+bge_m3:
+  model_name: "BAAI/bge-m3"
+  device: "cpu"
+  max_length: 8192
+  batch_size: 4
+  dense_dim: 512
+  enable_sparse: true
+  enable_colbert: true
+  cache_embeddings: true
 
-# Chunking settings
-chunk_size: 10000  # Maximum size of document chunks
-chunk_overlap: 500  # Overlap between chunks
+# Mathematical Content Processing
+mathematical_content:
+  chunk_size: 4000  # Aligned with document chunk size
+  chunk_overlap_ratio: 0.125  # 500/4000 = 0.125 (12.5% overlap)
+  preserve_latex: true
+  theorem_classification: true
+  proof_chain_tracking: true
+  citation_granularity: "sentence"
 
-# Web search fallback
-use_web_fallback: false  # Enable/disable web search when no relevant documents found
-web_results: 3  # Number of web results to return
+# RAG Pipeline Configuration
+rag:
+  retriever: "ragflow"  # Primary retriever: ragflow or qdrant
+  top_k: 50
+  final_k: 15
+  similarity_threshold: 0.5
+  enable_reranking: true
+  enable_graphrag: true
+  enable_raptor: true
 
-# Database settings
-collection: MoravaKTheory  # Vector database collection name
-db_search_limit: 20  # Maximum number of results to return when searching the database
+# UI Configuration
+ui:
+  use_markdown_rendering: true
+  enable_latex_processing: true
+  use_advanced_latex_rendering: true
+  code_highlighting: true
+  enable_rich_console: true
 
-# UI settings
-use_markdown_rendering: true  # Enable/disable markdown rendering in chat
-use_latex_rendering: true  # Enable/disable LaTeX rendering in chat
-code_highlighting: true  # Enable/disable syntax highlighting for code blocks
+# Performance Configuration
+performance:
+  target_response_time: 10
+  enable_batch_processing: true
+  memory_optimization: true
+  cpu_optimization: true
+
+# Observability Configuration  
+observability:
+  enable_structured_logging: true
+  log_level: "INFO"
+  enable_metrics: true
+  enable_health_checks: true
 
 # Response formatting
-prompt_template: "Answer the question based on the following context. \nIf you don't know the answer, just say you don't know; don't make up information.\nFor mathematical expressions, use LaTeX notation with proper delimiters (\\( \\) for inline math and \\[ \\] for display math).\nFor special mathematical notations, use proper LaTeX commands like \\mathbb{}, \\mathcal{}, subscripts (_{}), and superscripts (^{}).\n\nContext:\n{context}\n\nQuestion: {question}\n"
+prompt_template: |
+  Answer the question based on the following context with automatic citations.
+  Preserve mathematical notation and provide granular source attribution.
+
+  Context:
+  {context}
+
+  Question: {question}
+
+# Legacy settings (for backward compatibility)
+legacy_qdrant:
+  collection: "MoravaKTheory"
+  db_search_limit: 20

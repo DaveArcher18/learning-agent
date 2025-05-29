@@ -1,0 +1,55 @@
+{
+  "documents": [
+    {
+      "id": "264f0dd1ee08",
+      "filename": "ARCHITECTURE.md",
+      "metadata": {
+        "filename": "ARCHITECTURE.md",
+        "filepath": "docs/ARCHITECTURE.md",
+        "extension": ".md",
+        "size": 5966,
+        "lines": 144,
+        "type": "markdown",
+        "academic": false
+      },
+      "chunks_count": 207,
+      "created_at": "2025-05-28T09:56:18.506533"
+    },
+    {
+      "id": "7a2d153e52f1",
+      "filename": "MaiteThesis.pdf.md",
+      "metadata": {
+        "filename": "MaiteThesis.pdf.md",
+        "filepath": "docs/MaiteThesis.pdf.md",
+        "extension": ".md",
+        "size": 305834,
+        "lines": 2097,
+        "type": "markdown",
+        "academic": true
+      },
+      "chunks_count": 18678,
+      "created_at": "2025-05-28T09:56:18.540197"
+    },
+    {
+      "id": "663a46664c59",
+      "filename": "ATII_script.pdf.md",
+      "metadata": {
+        "filename": "ATII_script.pdf.md",
+        "filepath": "docs/ATII_script.pdf.md",
+        "extension": ".md",
+        "size": 409505,
+        "lines": 3695,
+        "type": "markdown",
+        "academic": true
+      },
+      "chunks_count": 14760,
+      "created_at": "2025-05-28T09:56:18.565748"
+    }
+  ],
+  "metadata": {
+    "created_at": "2025-05-28T09:56:18.566831",
+    "total_documents": 3,
+    "total_chunks": 33645,
+    "version": "1.0"
+  }
+}

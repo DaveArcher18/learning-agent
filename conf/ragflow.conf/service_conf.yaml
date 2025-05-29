@@ -1,0 +1,50 @@
+ragflow:
+  host: 0.0.0.0
+  http_port: 9380
+  
+# Use SQLite database (no MySQL dependency)
+database:
+  type: sqlite
+  path: /ragflow/data/ragflow.db
+  
+# Redis configuration (without password)  
+redis:
+  host: redis
+  port: 6379
+  db: 1
+  password: ""
+  
+# Elasticsearch configuration
+es:
+  hosts: http://es01:9200
+  username: ""
+  password: ""
+  
+# BGE-M3 embeddings configuration
+embeddings:
+  model: BAAI/bge-m3
+  device: cpu
+  max_length: 8192
+  batch_size: 4
+  
+# Mathematical content processing
+processing:
+  enable_layout_recognition: true
+  enable_ocr: true
+  enable_table_recognition: true
+  enable_formula_recognition: true
+  chunk_size: 1000
+  chunk_overlap: 400
+  preserve_latex: true
+  
+# Performance settings
+performance:
+  max_workers: 4
+  memory_limit: 8G
+  cpu_limit: 4
+  enable_gpu: false
+  
+# Logging
+logging:
+  level: INFO
+  path: /ragflow/logs 

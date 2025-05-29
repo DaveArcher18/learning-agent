@@ -1,0 +1,378 @@
+2025-05-28 07:10:50,925 INFO     23 task_executor_841814097bcd_0 log path: /ragflow/logs/task_executor_841814097bcd_0.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+2025-05-28 07:10:50,928 INFO     23 
+  ______           __      ______                     __
+ /_  __/___ ______/ /__   / ____/  _____  _______  __/ /_____  _____
+  / / / __ `/ ___/ //_/  / __/ | |/_/ _ \/ ___/ / / / __/ __ \/ ___/
+ / / / /_/ (__  ) ,<    / /____>  </  __/ /__/ /_/ / /_/ /_/ / /
+/_/  \__,_/____/_/|_|  /_____/_/|_|\___/\___/\__,_/\__/\____/_/
+    
+2025-05-28 07:10:50,928 INFO     23 TaskExecutor: RAGFlow version: v0.19.0 slim
+2025-05-28 07:10:50,929 INFO     23 Use Elasticsearch http://es01:9200 as the doc engine.
+2025-05-28 07:10:50,942 INFO     23 GET http://es01:9200/ [status:200 duration:0.012s]
+2025-05-28 07:10:50,945 INFO     23 HEAD http://es01:9200/ [status:200 duration:0.002s]
+2025-05-28 07:10:50,946 INFO     23 Elasticsearch http://es01:9200 is healthy.
+2025-05-28 07:10:50,950 WARNING  23 Load term.freq FAIL!
+2025-05-28 07:10:50,953 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2025-05-28 07:10:50,956 WARNING  23 Load term.freq FAIL!
+2025-05-28 07:10:50,959 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2025-05-28 07:10:50,959 INFO     23 MAX_CONTENT_LENGTH: 134217728
+2025-05-28 07:10:50,960 INFO     23 MAX_FILE_COUNT_PER_USER: 0
+2025-05-28 07:10:50,964 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:10:50,967 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:10:50.963-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:10:50,968 WARNING  23 RedisDB.get_unacked_iterator queue rag_flow_svr_queue_1 doesn't exist
+2025-05-28 07:10:50,969 WARNING  23 RedisDB.get_unacked_iterator queue rag_flow_svr_queue doesn't exist
+2025-05-28 07:11:20,972 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:11:20,975 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:11:20.971-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:11:50,989 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:11:50,992 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:11:50.988-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:12:21,008 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:12:21,011 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:12:21.006-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:12:51,020 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:12:51,023 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:12:51.019-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:13:21,030 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:13:21,032 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:13:21.028-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:13:51,039 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:13:51,041 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:13:51.037-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:14:21,048 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:14:21,050 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:14:21.046-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:14:51,059 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:14:51,061 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:14:51.057-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:15:21,088 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:15:21,091 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:15:21.086-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:15:51,106 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: no such key
+2025-05-28 07:15:51,109 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:15:51.105-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:16:16,570 ERROR    23 RedisDB.queue_consumer rag_flow_svr_queue_1 got exception: Error 111 connecting to redis:6379. Connection refused.
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 193, in collect
+    redis_msg = next(UNACKED_ITERATOR)
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1116, in get_connection
+    if connection.can_read() and connection.client_cache is None:
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 524, in can_read
+    return self._parser.can_read(timeout)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/_parsers/base.py", line 128, in can_read
+    return self._buffer and self._buffer.can_read(timeout)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/_parsers/socket.py", line 95, in can_read
+    return bool(self.unread_bytes()) or self._read_from_socket(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/_parsers/socket.py", line 68, in _read_from_socket
+    raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
+valkey.exceptions.ConnectionError: Connection closed by server.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 728, in _connect
+    raise err
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 716, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/utils/redis_conn.py", line 228, in queue_consumer
+    group_info = self.REDIS.xinfo_groups(queue_name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 3810, in xinfo_groups
+    return self.execute_command("XINFO GROUPS", name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1120, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error 111 connecting to redis:6379. Connection refused.
+2025-05-28 07:16:16,576 ERROR    23 RedisDB.queue_consumer rag_flow_svr_queue got exception: Error 111 connecting to redis:6379. Connection refused.
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 193, in collect
+    redis_msg = next(UNACKED_ITERATOR)
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 728, in _connect
+    raise err
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 716, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/utils/redis_conn.py", line 228, in queue_consumer
+    group_info = self.REDIS.xinfo_groups(queue_name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 3810, in xinfo_groups
+    return self.execute_command("XINFO GROUPS", name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1107, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error 111 connecting to redis:6379. Connection refused.
+2025-05-28 07:16:16,592 ERROR    23 RedisDB.queue_consumer rag_flow_svr_queue_1 got exception: Error 111 connecting to redis:6379. Connection refused.
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 193, in collect
+    redis_msg = next(UNACKED_ITERATOR)
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 728, in _connect
+    raise err
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 716, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/utils/redis_conn.py", line 228, in queue_consumer
+    group_info = self.REDIS.xinfo_groups(queue_name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 3810, in xinfo_groups
+    return self.execute_command("XINFO GROUPS", name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1107, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error 111 connecting to redis:6379. Connection refused.
+2025-05-28 07:16:16,593 ERROR    23 RedisDB.queue_consumer rag_flow_svr_queue got exception: Error 111 connecting to redis:6379. Connection refused.
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 193, in collect
+    redis_msg = next(UNACKED_ITERATOR)
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 728, in _connect
+    raise err
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 716, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/utils/redis_conn.py", line 228, in queue_consumer
+    group_info = self.REDIS.xinfo_groups(queue_name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 3810, in xinfo_groups
+    return self.execute_command("XINFO GROUPS", name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1107, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error 111 connecting to redis:6379. Connection refused.
+2025-05-28 07:16:16,776 ERROR    23 RedisDB.queue_consumer rag_flow_svr_queue_1 got exception: Error -2 connecting to redis:6379. Name or service not known.
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 193, in collect
+    redis_msg = next(UNACKED_ITERATOR)
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 696, in _connect
+    for res in socket.getaddrinfo(
+  File "/usr/lib/python3.10/socket.py", line 955, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+socket.gaierror: [Errno -2] Name or service not known
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/utils/redis_conn.py", line 228, in queue_consumer
+    group_info = self.REDIS.xinfo_groups(queue_name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 3810, in xinfo_groups
+    return self.execute_command("XINFO GROUPS", name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1107, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error -2 connecting to redis:6379. Name or service not known.
+2025-05-28 07:16:16,780 ERROR    23 RedisDB.queue_consumer rag_flow_svr_queue got exception: Error -2 connecting to redis:6379. Name or service not known.
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 193, in collect
+    redis_msg = next(UNACKED_ITERATOR)
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 696, in _connect
+    for res in socket.getaddrinfo(
+  File "/usr/lib/python3.10/socket.py", line 955, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+socket.gaierror: [Errno -2] Name or service not known
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/utils/redis_conn.py", line 228, in queue_consumer
+    group_info = self.REDIS.xinfo_groups(queue_name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 3810, in xinfo_groups
+    return self.execute_command("XINFO GROUPS", name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1107, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error -2 connecting to redis:6379. Name or service not known.
+2025-05-28 07:16:16,839 ERROR    23 RedisDB.queue_consumer rag_flow_svr_queue_1 got exception: Error -2 connecting to redis:6379. Name or service not known.
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 193, in collect
+    redis_msg = next(UNACKED_ITERATOR)
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 696, in _connect
+    for res in socket.getaddrinfo(
+  File "/usr/lib/python3.10/socket.py", line 955, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+socket.gaierror: [Errno -2] Name or service not known
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/utils/redis_conn.py", line 228, in queue_consumer
+    group_info = self.REDIS.xinfo_groups(queue_name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 3810, in xinfo_groups
+    return self.execute_command("XINFO GROUPS", name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1107, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error -2 connecting to redis:6379. Name or service not known.
+2025-05-28 07:16:16,844 ERROR    23 RedisDB.queue_consumer rag_flow_svr_queue got exception: Error -2 connecting to redis:6379. Name or service not known.
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 193, in collect
+    redis_msg = next(UNACKED_ITERATOR)
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 696, in _connect
+    for res in socket.getaddrinfo(
+  File "/usr/lib/python3.10/socket.py", line 955, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+socket.gaierror: [Errno -2] Name or service not known
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/utils/redis_conn.py", line 228, in queue_consumer
+    group_info = self.REDIS.xinfo_groups(queue_name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 3810, in xinfo_groups
+    return self.execute_command("XINFO GROUPS", name)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1107, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error -2 connecting to redis:6379. Name or service not known.
+2025-05-28 07:16:21,126 WARNING  23 RedisDB.queue_info rag_flow_svr_queue got exception: Error -2 connecting to redis:6379. Name or service not known.
+2025-05-28 07:16:21,133 WARNING  23 RedisDB.zadd task_executor_841814097bcd_0 got exception: Error -2 connecting to redis:6379. Name or service not known.
+2025-05-28 07:16:21,134 INFO     23 task_executor_841814097bcd_0 reported heartbeat: {"name": "task_executor_841814097bcd_0", "now": "2025-05-28T07:16:21.119-04:00", "boot_at": "2025-05-28T07:10:50.924-04:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-05-28 07:16:21,139 WARNING  23 RedisDB.zcount task_executor_841814097bcd_0 got exception: Error -2 connecting to redis:6379. Name or service not known.
+2025-05-28 07:16:21,144 ERROR    23 report_status got exception
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 302, in connect
+    sock = self.retry.call_with_retry(
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/retry.py", line 62, in call_with_retry
+    return do()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 303, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 696, in _connect
+    for res in socket.getaddrinfo(
+  File "/usr/lib/python3.10/socket.py", line 955, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+socket.gaierror: [Errno -2] Name or service not known
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/ragflow/rag/svr/task_executor.py", line 670, in report_status
+    if redis_lock.acquire():
+  File "/ragflow/rag/utils/redis_conn.py", line 350, in acquire
+    REDIS_CONN.delete_if_equal(self.lock_key, self.lock_value)
+  File "/ragflow/rag/utils/redis_conn.py", line 324, in delete_if_equal
+    return bool(self.lua_delete_if_equal(keys=[key], args=[expected_value], client=self.REDIS))
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 6356, in __call__
+    return client.evalsha(self.sha, len(keys), *args)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 5730, in evalsha
+    return self._evalsha("EVALSHA", sha, numkeys, *keys_and_args)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/commands/core.py", line 5714, in _evalsha
+    return self.execute_command(command, sha, numkeys, *keys_and_args)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/client.py", line 564, in execute_command
+    conn = self.connection or pool.get_connection(command_name, **options)
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 1107, in get_connection
+    connection.connect()
+  File "/ragflow/.venv/lib/python3.10/site-packages/valkey/connection.py", line 308, in connect
+    raise ConnectionError(self._error_message(e))
+valkey.exceptions.ConnectionError: Error -2 connecting to redis:6379. Name or service not known.

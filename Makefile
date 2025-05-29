@@ -1,14 +1,28 @@
 # --------------------------------------------------------------------
 # LearningAgent Makefile
 # --------------------------------------------------------------------
-# Targets:
-#   make start_qdrant   →  start (or reuse) a local Qdrant Docker
-#   make setup          →  create the collection in Qdrant if missing
-#   make ingest         →  ingest ./docs into Qdrant
-#   make run            →  chat with the agent
-#   make audit          →  show stats and info about the collection
-#   make stop_qdrant    →  stop & remove the Qdrant container
-#   make clean          →  delete qdrant_data volume (DANGER: wipes vectors)
+# RAGFlow Targets (Primary):
+#   make ragflow-start    →  start RAGFlow with BGE-M3 setup
+#   make ragflow-stop     →  stop RAGFlow services
+#   make ragflow-logs     →  view RAGFlow logs
+#   make ragflow-health   →  check RAGFlow service health
+#   make ragflow-setup    →  initialize RAGFlow knowledge base
+#   make ragflow-ingest   →  ingest documents to RAGFlow
+#   make ragflow-migrate  →  migrate from Qdrant to RAGFlow
+#   make ragflow-clean    →  clean RAGFlow data (DANGER: wipes data)
+#
+# Legacy Qdrant Targets (Migration Support):
+#   make start_qdrant     →  start (or reuse) a local Qdrant Docker
+#   make setup            →  create the collection in Qdrant if missing
+#   make ingest           →  ingest ./docs into Qdrant
+#   make audit            →  show stats and info about the collection
+#   make stop_qdrant      →  stop & remove the Qdrant container
+#   make clean            →  delete qdrant_data volume (DANGER: wipes vectors)
+#
+# General Targets:
+#   make run              →  chat with the agent (uses RAGFlow)
+#   make test             →  run test suite
+#   make install          →  install Python dependencies
 # --------------------------------------------------------------------
 
 PY      = python
@@ -84,3 +98,105 @@ run: setup
 audit: 
 	@echo "🔍 Auditing Qdrant database..."
 	$(PY) audit_qdrant.py
+
+# ====================================================================
+# RAGFlow Management (Primary RAG Engine)
+# ====================================================================
+
+RAGFLOW_COMPOSE = docker-compose.ragflow.yml
+RAGFLOW_SERVICE = ragflow
+RAGFLOW_CONTAINER = ragflow
+
+.PHONY: ragflow-start ragflow-stop ragflow-logs ragflow-health ragflow-setup ragflow-ingest ragflow-migrate ragflow-clean
+
+# Start RAGFlow with BGE-M3 setup
+ragflow-start:
+	@echo "🚀 Starting RAGFlow with BGE-M3 mathematical content setup..."
+	@mkdir -p data/documents conf
+	@echo "📁 Created data directories"
+	@docker compose -f $(RAGFLOW_COMPOSE) up -d
+	@echo "⏳ Waiting for RAGFlow to initialize (60s)..."
+	@sleep 60
+	@echo "✅ RAGFlow available at http://localhost:9380"
+	@echo "🔗 RAGFlow Web UI at http://localhost:80"
+
+# Stop RAGFlow services
+ragflow-stop:
+	@echo "🔴 Stopping RAGFlow services..."
+	@docker compose -f $(RAGFLOW_COMPOSE) down
+	@echo "✅ RAGFlow services stopped"
+
+# View RAGFlow logs
+ragflow-logs:
+	@echo "📋 RAGFlow logs (press Ctrl+C to exit):"
+	@docker compose -f $(RAGFLOW_COMPOSE) logs -f $(RAGFLOW_SERVICE)
+
+# Check RAGFlow service health
+ragflow-health:
+	@echo "🏥 Checking RAGFlow service health..."
+	@if docker ps --format '{{.Names}}' | grep -q "^$(RAGFLOW_CONTAINER)$$"; then \
+		echo "✅ RAGFlow container is running"; \
+		curl -f http://localhost:9380/health || echo "❌ RAGFlow API health check failed"; \
+	else \
+		echo "❌ RAGFlow container is not running"; \
+	fi
+
+# Initialize RAGFlow knowledge base for mathematical content
+ragflow-setup: ragflow-start
+	@echo "🛠️ Setting up RAGFlow knowledge base for mathematical content..."
+	@echo "📊 This will configure BGE-M3 embeddings and mathematical processing..."
+	$(PY) -c "from src.rag.ragflow_setup import setup_mathematical_kb; setup_mathematical_kb()"
+	@echo "✅ RAGFlow knowledge base initialized"
+
+# Ingest documents to RAGFlow with mathematical content processing
+ragflow-ingest: ragflow-setup
+	@echo "📚 Ingesting documents to RAGFlow with mathematical processing..."
+	@mkdir -p docs
+	$(PY) -c "from src.rag.ragflow_ingest import ingest_documents; ingest_documents('./docs')"
+	@echo "✅ Document ingestion completed"
+
+# Migrate from Qdrant to RAGFlow
+ragflow-migrate: ragflow-setup
+	@echo "🔄 Starting migration from Qdrant to RAGFlow..."
+	@echo "⚠️ This will export Qdrant data and import to RAGFlow"
+	$(PY) -c "from src.rag.migration import migrate_qdrant_to_ragflow; migrate_qdrant_to_ragflow()"
+	@echo "✅ Migration completed"
+
+# Clean RAGFlow data (DANGEROUS)
+ragflow-clean:
+	@echo "🗑️ WARNING: This will delete all RAGFlow data!"
+	@read -p "Type 'DELETE' to confirm: " confirm; \
+	if [ "$$confirm" = "DELETE" ]; then \
+		docker compose -f $(RAGFLOW_COMPOSE) down -v; \
+		docker volume prune -f; \
+		echo "✅ RAGFlow data cleaned"; \
+	else \
+		echo "❌ Cleanup cancelled"; \
+	fi
+
+# ====================================================================
+# General Targets
+# ====================================================================
+
+# Install Python dependencies
+install:
+	@echo "📦 Installing Python dependencies..."
+	pip install -r requirements.txt
+	@echo "✅ Dependencies installed"
+
+# Run test suite
+test:
+	@echo "🧪 Running test suite..."
+	$(PY) -m pytest tests/ -v
+	@echo "✅ Tests completed"
+
+# Default development workflow
+dev-setup: install ragflow-start ragflow-setup
+	@echo "🎯 Development environment ready!"
+	@echo "📚 Add documents to ./docs/ then run: make ragflow-ingest"
+	@echo "💬 Start chatting with: make run"
+
+# Quick start for new users
+quickstart: dev-setup
+	@echo "🚀 Quick start completed!"
+	@echo "📖 Check README.md for usage instructions"

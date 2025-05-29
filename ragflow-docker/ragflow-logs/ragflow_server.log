@@ -1,0 +1,57 @@
+2025-05-28 07:10:22,002 INFO     21 ragflow_server log path: /ragflow/logs/ragflow_server.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+2025-05-28 07:10:23,001 INFO     21 can't import package 'torch'
+2025-05-28 07:10:29,767 INFO     21 init database on cluster mode successfully
+2025-05-28 07:10:34,153 INFO     21 load_model /ragflow/rag/res/deepdoc/det.onnx uses CPU
+2025-05-28 07:10:34,257 INFO     21 load_model /ragflow/rag/res/deepdoc/rec.onnx uses CPU
+2025-05-28 07:10:40,767 INFO     21 
+        ____   ___    ______ ______ __               
+       / __ \ /   |  / ____// ____// /____  _      __
+      / /_/ // /| | / / __ / /_   / // __ \| | /| / /
+     / _, _// ___ |/ /_/ // __/  / // /_/ /| |/ |/ / 
+    /_/ |_|/_/  |_|\____//_/    /_/ \____/ |__/|__/                             
+
+    
+2025-05-28 07:10:40,768 INFO     21 RAGFlow version: v0.19.0 slim
+2025-05-28 07:10:40,768 INFO     21 project base: /ragflow
+2025-05-28 07:10:40,768 INFO     21 Current configs, from /ragflow/conf/service_conf.yaml:
+	ragflow: {'host': '0.0.0.0', 'http_port': 9380}
+	mysql: {'name': 'rag_flow', 'user': 'root', 'password': '********', 'host': 'mysql', 'port': 3306, 'max_connections': 900, 'stale_timeout': 300}
+	minio: {'user': 'rag_flow', 'password': '********', 'host': 'minio:9000'}
+	es: {'hosts': 'http://es01:9200', 'username': 'elastic', 'password': '********'}
+	os: {'hosts': 'http://opensearch01:9201', 'username': 'admin', 'password': '********'}
+	infinity: {'uri': 'infinity:23817', 'db_name': 'default_db'}
+	redis: {'db': 1, 'password': '********', 'host': 'redis:6379'}
+2025-05-28 07:10:40,770 INFO     21 Use Elasticsearch http://es01:9200 as the doc engine.
+2025-05-28 07:10:40,880 INFO     21 GET http://es01:9200/ [status:200 duration:0.108s]
+2025-05-28 07:10:40,886 INFO     21 HEAD http://es01:9200/ [status:200 duration:0.006s]
+2025-05-28 07:10:40,887 INFO     21 Elasticsearch http://es01:9200 is healthy.
+2025-05-28 07:10:40,891 WARNING  21 Load term.freq FAIL!
+2025-05-28 07:10:40,894 WARNING  21 Realtime synonym is disabled, since no redis connection.
+2025-05-28 07:10:40,898 WARNING  21 Load term.freq FAIL!
+2025-05-28 07:10:40,901 WARNING  21 Realtime synonym is disabled, since no redis connection.
+2025-05-28 07:10:40,901 INFO     21 MAX_CONTENT_LENGTH: 134217728
+2025-05-28 07:10:40,901 INFO     21 MAX_FILE_COUNT_PER_USER: 0
+2025-05-28 07:10:43,442 INFO     21 init web data success:0.8316805362701416
+2025-05-28 07:10:43,444 INFO     21 Recursively importing plugins from path `/ragflow/plugin/embedded_plugins`
+2025-05-28 07:10:43,445 INFO     21 Loaded llm_tools plugin BadCalculatorPlugin version 1.0.0
+2025-05-28 07:10:43,447 INFO     21 update_progress lock_value: b412b4f9-7e29-458b-b884-0ef419b42456
+2025-05-28 07:10:43,447 INFO     21 RAGFlow HTTP server start...
+2025-05-28 07:10:43,450 INFO     21 [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:9380
+ * Running on http://172.18.0.6:9380
+2025-05-28 07:10:43,451 INFO     21 [33mPress CTRL+C to quit[0m
+2025-05-28 07:11:04,081 ERROR    21 404 Not Found: The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.
+Traceback (most recent call last):
+  File "/ragflow/.venv/lib/python3.10/site-packages/flask/app.py", line 880, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/ragflow/.venv/lib/python3.10/site-packages/flask/app.py", line 854, in dispatch_request
+    self.raise_routing_exception(req)
+  File "/ragflow/.venv/lib/python3.10/site-packages/flask/app.py", line 463, in raise_routing_exception
+    raise request.routing_exception  # type: ignore[misc]
+  File "/ragflow/.venv/lib/python3.10/site-packages/flask/ctx.py", line 362, in match_request
+    result = self.url_adapter.match(return_rule=True)  # type: ignore
+  File "/ragflow/.venv/lib/python3.10/site-packages/werkzeug/routing/map.py", line 629, in match
+    raise NotFound() from None
+werkzeug.exceptions.NotFound: 404 Not Found: The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.
+2025-05-28 07:11:04,091 INFO     21 192.168.65.1 - - [28/May/2025 07:11:04] "GET /health HTTP/1.1" 200 -

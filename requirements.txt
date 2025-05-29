@@ -9,6 +9,10 @@ langchain-exa>=0.0.3
 langchain-openai>=0.1.0  # For OpenRouter integration
 openai>=1.1.0  # For OpenRouter integration
 
+# RAGFlow integration
+ragflow-sdk>=0.18.0
+# ragflow-langchain>=0.2.1  # If available
+
 # Embeddings and vector DB
 fastembed>=0.1.0
 qdrant-client>=1.7.0
@@ -17,12 +21,29 @@ qdrant-client>=1.7.0
 pypdf>=3.17.1
 pymupdf>=1.23.8  # Alternative PDF reader
 
+# Configuration and validation
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+pyyaml>=6.0.0  # For configuration files
+
+# Retry and error handling
+backoff>=2.2.0
+
 # Utilities
 rich>=13.0.0
-python-dotenv>=1.0.0
+psutil>=5.9.0  # System resource monitoring
+
+# Mathematical processing (Week 7)
+networkx>=3.0.0  # For mathematical concept graphs
 
 # Optional but recommended for enhanced tokenization
 tiktoken>=0.5.2
 
 # Web search
 exa-py>=1.12.0
+
+# HTTP requests
+requests>=2.31.0
+
+# Additional RAGFlow dependencies
+pathlib2>=2.3.0  # Enhanced path handling

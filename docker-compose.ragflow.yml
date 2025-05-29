@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  ragflow:
+    image: infiniflow/ragflow:v0.19.0
+    container_name: ragflow
+    restart: unless-stopped
+    ports:
+      - "9380:9380"    # RAGFlow API
+      - "8080:80"      # RAGFlow Web UI (changed from 80:80 to avoid conflict)
+    environment:
+      # Core RAGFlow settings
+      - HOST=0.0.0.0
+      - HTTP_PORT=9380
+      - DEBUG=false
+      
+      # Use SQLite instead of Redis/MySQL for simplicity
+      - USE_SQLITE=true
+      - SQLITE_DB_PATH=/ragflow/data/ragflow.db
+      
+      # Disable external search engines, use internal search
+      - ENABLE_ELASTICSEARCH=false
+      - ENABLE_OPENSEARCH=false
+      - USE_INTERNAL_SEARCH=true
+      
+      # BGE-M3 embedding model settings (M1 optimized)
+      - EMBEDDING_MODEL=BAAI/bge-m3
+      - EMBEDDING_DEVICE=cpu
+      - EMBEDDING_MAX_LENGTH=8192
+      - EMBEDDING_BATCH_SIZE=4
+      - EMBEDDING_CACHE_SIZE=1000
+      
+      # Mathematical content processing
+      - ENABLE_LAYOUT_RECOGNITION=true
+      - ENABLE_OCR=true
+      - ENABLE_TABLE_RECOGNITION=true
+      - ENABLE_FORMULA_RECOGNITION=true
+      - CHUNK_SIZE=1000
+      - CHUNK_OVERLAP=400
+      
+      # Performance settings for M1 MacBook Air (16GB RAM)
+      - MAX_WORKERS=4
+      - MEMORY_LIMIT=8G
+      - CPU_LIMIT=4
+      - ENABLE_GPU=false
+      
+      # Quality-first settings for small datasets
+      - ENABLE_RERANKING=true
+      - RERANKING_TOP_K=50
+      - FINAL_TOP_K=15
+      - SIMILARITY_THRESHOLD=0.5
+      
+      # Citation and source tracking
+      - ENABLE_CITATIONS=true
+      - CITATION_GRANULARITY=sentence
+      - ENABLE_SOURCE_TRACKING=true
+      
+      # DeepDoc processing pipeline
+      - DEEPDOC_ENGINE=mistral_ocr
+      - ENABLE_ADVANCED_PARSING=true
+      - PRESERVE_LATEX=true
+      
+      # Logging and monitoring
+      - LOG_LEVEL=INFO
+      - ENABLE_METRICS=true
+      - METRICS_PORT=9381
+      
+    volumes:
+      # Data persistence
+      - ragflow_data:/ragflow/data
+      - ragflow_logs:/ragflow/logs
+      - ragflow_models:/ragflow/models
+      
+      # Document storage for processing
+      - ./data/documents:/ragflow/documents:ro
+      
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9380/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+          cpus: '2.0'
+
+volumes:
+  ragflow_data:
+    driver: local
+  ragflow_logs:
+    driver: local
+  ragflow_models:
+    driver: local
+
+networks:
+  ragflow_network:
+    driver: bridge
+    
+# Health monitoring and management
+x-common-variables: &common-variables
+  PYTHONUNBUFFERED: 1
+  TERM: xterm-256color
+  
+# BGE-M3 specific configuration for mathematical content
+x-bge-m3-config: &bge-m3-config
+  # Multi-vector retrieval configuration
+  DENSE_EMBEDDING_DIM: 512
+  ENABLE_SPARSE_EMBEDDING: true
+  ENABLE_COLBERT_EMBEDDING: true
+  
+  # Mathematical content optimization
+  MATH_NOTATION_SUPPORT: true
+  LATEX_PRESERVATION: true
+  THEOREM_DETECTION: true
+  PROOF_CHAIN_TRACKING: true
+  
+  # Performance tuning for M1
+  CPU_THREADS: 4
+  BATCH_PROCESSING: true
+  EMBEDDING_CACHE: true
+  PREFETCH_MODELS: true 
